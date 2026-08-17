@@ -173,6 +173,7 @@ Runs four checks:
 
 ## Reading Order
 
+0. `DATA_NOTES.md` — what's actually in the CSV snapshot: scope, known defects, column formats
 1. `configs/v1.yaml` — all tunable parameters
 2. `src/features/snapshots.py` — leak-free builder
 3. `src/eval/harness.py` — the source of truth
