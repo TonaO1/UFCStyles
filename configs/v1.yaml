@@ -1,0 +1,89 @@
+# UFC Style Embedding Engine Configuration v1
+# Edit these before running any pipeline.
+
+# === DATA SCOPE ===
+roster:
+  min_ufc_bouts: 5 # Filter to fighters with 5+ non-DWCS UFC appearances. (3+ if too thin.)
+  exclude_dwcs: true
+  era_start: "2014-01-01" # Tunable. Set from day-2 scope analysis, not narrative.
+
+history:
+  min_prior_fights: 3 # Don't produce snapshot unless fighter has 3+ prior bouts.
+  strategy: "extend" # "extend" = allow pre-cutoff bouts; "truncate_at_cutoff" = reset at era_start
+
+# === FEATURES ===
+features:
+  blocks:
+    proportions: true # Target/position distribution, grappling preference, pace, method
+    rates: true # Per-minute, accuracy, win/finish rates
+    physical: true # Height, reach, weight-class percentiles
+    dispersion: true # Within-fighter spread (requires per_bout vectors)
+
+  shrinkage:
+    enabled: true
+    k: 75 # Empirical Bayes parameter (attempts to shrink over)
+
+# === LABELING ===
+labels:
+  background:
+    n_samples: 200
+    stratify_by: ["era_tercile", "weight_class"]
+  guard:
+    n_samples: 200 # Per bout, not per fighter
+    per_fighter_min: 2
+    compute_kappa: true
+
+# === SPLITS ===
+splits:
+  train:
+    date_range: ["2014-01-01", "2021-12-31"]
+  val:
+    date_range: ["2022-01-01", "2023-06-30"]
+  test:
+    date_range: ["2023-07-01", "2026-12-31"]
+
+# === MODELS ===
+training:
+  device: "cpu" # Switch to "cuda" for GPU
+  seed: 42
+
+  autoencoder:
+    d_in: 28 # Will be set from actual feature count
+    d_latent: 8
+    d_hidden: [32, 16]
+    dropout: 0.15
+    optimizer: "Adam"
+    lr: 1e-3
+    weight_decay: 1e-4
+    epochs_max: 200
+    batch_size: 64
+    early_stopping_patience: 20
+
+  contrastive:
+    d_in: 28
+    d_latent: 8
+    d_proj: 16
+    optimizer: "Adam"
+    lr: 1e-3
+    weight_decay: 1e-4
+    epochs_max: 200
+    batch_size: 64
+    early_stopping_patience: 20
+    nt_xent_tau: 0.1
+    pair_strategy: "gapped" # "gapped" | "round_subsample" | "feature_dropout"
+
+# === EVALUATION ===
+eval:
+  probe_k: 10 # k-NN for probe recovery
+  cycle_sample_rate: 0.5 # Sample this fraction of triples for cycle detection
+  matchup_bootstrap_resamples: 1000
+
+# === PATHS (relative to repo root) ===
+paths:
+  raw: "data/raw"
+  snapshots: "data/snapshots/v1"
+  per_bout: "data/per_bout/v1"
+  labels: "data/labels"
+  models: "data/models"
+  eval: "data/eval"
+  notebooks: "notebooks"

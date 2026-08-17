@@ -1,0 +1,12 @@
+data/
+notebooks/
+.ipynb_checkpoints/
+*.pyc
+__pycache__/
+.DS_Store
+.env
+*.pkl
+*.npz
+.terraform/
+terraform.tfstate*
+.venv/
