@@ -1,12 +1,26 @@
-data/
-notebooks/
-.ipynb_checkpoints/
-*.pyc
-__pycache__/
-.DS_Store
+# Environments
+.venv/
+venv/
 .env
+
+# Derived data — regenerable from the committed CSV snapshot + code + configs/v1.yaml.
+# Tracked on purpose: data/labels/ (hand-labeled, irreplaceable),
+# data/eval/ (result record), data/scrape_ufc_stats-main/*.csv (reproducibility snapshot).
+data/raw/
+data/snapshots/
+data/per_bout/
+data/models/
+
+# Model weights / pickles anywhere
 *.pkl
 *.npz
+
+# Terraform
 .terraform/
 terraform.tfstate*
-.venv/
+
+# Python / Jupyter / macOS
+*.pyc
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store

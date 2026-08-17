@@ -1,0 +1,6 @@
+fighter_id,background,notes,confidence
+fighter_name_1,wrestler,Examples from Sherdog,high
+fighter_name_2,striker_kickboxing,Professional MT record,high
+fighter_name_3,bjj_grappler,Purple belt BJJ,medium
+fighter_name_4,hybrid,Well-rounded game,medium
+fighter_name_5,unclear,Not enough data,low
