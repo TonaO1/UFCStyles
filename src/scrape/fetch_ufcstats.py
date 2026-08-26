@@ -31,6 +31,8 @@ import boto3
 # ============================================================================
 # SECTION 1: FETCH DATA
 # ============================================================================
+# Absolute ile path for accessing scraped data u
+SOURCE_DIR = Path(__file__).resolve().parents[2] / "data"/ "scrape_ufc_stats-main"
 
 def fetch_events() -> pd.DataFrame:
     """
@@ -42,13 +44,13 @@ def fetch_events() -> pd.DataFrame:
     You write this using Greco1899/scrape_ufc_stats or similar.
     The key is marking DWCS events so we can exclude them.
     """
-    
-    # Pseudo-code:
-    # 1. Load or scrape events
-    # 2. Call flag_dwcs_events()
-    # 3. Validate date format (YYYY-MM-DD)
-    # 4. Return
-    raise NotImplementedError("You implement the scraper. Use Greco1899 as reference.")
+    #Load events into DataFrame
+    events_path : Path = SOURCE_DIR / "ufc_event_details.csv"
+    events_df : pd.DataFrame = pd.read_csv(events_path) 
+
+    #Standardize date format to (YYYY-MM-DD)
+    events_df["DATE"] = pd.to_datetime(events_df["DATE"],format = "%B %d, %Y")
+    return events_df
 
 
 def flag_dwcs_events(events_df: pd.DataFrame) -> pd.DataFrame:
@@ -68,7 +70,7 @@ def flag_dwcs_events(events_df: pd.DataFrame) -> pd.DataFrame:
         >>> flag_dwcs_events({"event_name": ["UFC 123", "DWCS 5", "UFC 124"]})
         # Returns with is_dwcs: [False, True, False]
     """
-    events_df["is_dwcs"] = events_df["event_name"].str.contains(
+    events_df["is_dwcs"] = events_df["EVENT"].str.contains(
         r"(?:Dana White|DWCS|Contender Series)",
         case=False,
         na=False
@@ -87,6 +89,73 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
     
     Merge with events to attach event metadata and is_dwcs flag.
     """
+    #Load events into DataFrame
+
+    results_path : Path = SOURCE_DIR / "ufc_fight_results.csv" # Use to get all other stats
+    fdetails_path : Path = SOURCE_DIR / "ufc_fighter_details.csv" # Use to get fighter ID
+
+    fight_results_df : pd.DataFrame = pd.read_csv(results_path) # Use to get all other stats
+    fighter_details_df : pd.DataFrame = pd.read_csv(fdetails_path) # Use to get fighter ID
+    # events_df is used to get event ID and time
+
+    # Use URL hashes to assign IDs to each row
+    fight_results_df['fight_id'] = fight_results_df["URL"].str.rsplit("/",n=1).str[-1]
+    fighter_details_df['fighter_id'] = fighter_details_df["URL"].str.rsplit("/",n=1).str[-1]
+    events_df['event_id'] = events_df["URL"].str.rsplit("/",n=1).str[-1]
+
+    # Create name column for fighters
+    # Outer .strip() matters: 17 fighters are mononyms with no FIRST name (Maheshate,
+    # Rongzhu, Sumudaerji, ...), so the concat yields " Maheshate" and the leading space
+    # would silently break the join against BOUT names.
+    fighter_details_df['name'] = (
+        fighter_details_df["FIRST"].fillna("").str.strip() + " "
+        + fighter_details_df["LAST"].fillna("").str.strip()).str.strip()
+
+    # create fighter a and fighter b name columns
+    fight_results_df[["fighter_a_name", "fighter_b_name"]] = (
+    fight_results_df["BOUT"].str.split(" vs. ", expand=True, regex=False))
+
+    #Create winner name column --> will use to find winner id on merge
+    fight_results_df["winner_name"] = np.select(
+    [fight_results_df["OUTCOME"].eq("W/L"), fight_results_df["OUTCOME"].eq("L/W")],
+    [fight_results_df["fighter_a_name"], fight_results_df["fighter_b_name"]],
+    default=None,
+    )
+
+    # WEIGHTCLASS is messy: "UFC Welterweight Title Bout", "Interim Heavyweight Title Bout",
+    # "Ultimate Fighter 14 Bantamweight Tournament". Normalise once, reuse below.
+    weightclass = fight_results_df["WEIGHTCLASS"].fillna("").str.strip()
+
+    # Label Title Bouts (also catches interim titles: "Interim Heavyweight Title Bout")
+    fight_results_df["title_bout"] = weightclass.str.lower().str.contains("title")
+
+    #Create weightclass column
+    division_lookup = {
+    "Women's Strawweight":115,"Women's Flyweight":125,"Women's Bantamweight":135,
+    "Women's Featherweight":145, "Flyweight":125, "Bantamweight":135, "Featherweight":145,
+    "Lightweight":155, "Welterweight":170, "Middleweight":185, "Light Heavyweight": 205, 
+    "Heavyweight":265
+    }
+    sorted_divisions = sorted(list(division_lookup.keys()),key = lambda x: -len(x)) # sort in descending order
+
+    # Weight classes like catch weight, super heavyweight and open weight don't exist in the table because they have no weight limit
+    # Extract rather than strip: on TUF cards the division sits mid-string, so there is no
+    # prefix/suffix to remove. Alternation resolves leftmost-first, so the suffix overlaps
+    # ("Heavyweight" inside "Light Heavyweight", "Bantamweight" inside "Women's
+    # Bantamweight") are already safe -- the long name starts earlier and wins on position.
+    # Longest-first ordering is cheap insurance for any future key that is a true PREFIX of
+    # another, where list order would decide. Keeping the women's divisions distinct matters:
+    # pooling them would break reach percentiles downstream.
+    division_pattern = "(" + "|".join(sorted_divisions) + ")"
+    fight_results_df["weight_class"] = weightclass.str.extract(division_pattern, expand=False)
+
+    # Nullable Int64 so unmatched rows stay null instead of coercing the column to float.
+    fight_results_df["weight_lbs"] = (
+        fight_results_df["weight_class"].map(division_lookup).astype("Int64"))
+
+    
+
+
     raise NotImplementedError("You implement the scraper.")
 
 
