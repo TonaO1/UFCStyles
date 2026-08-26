@@ -84,9 +84,19 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
     
     Returns:
         DataFrame with columns:
-        fight_id, event_id, fighter_a_id, fighter_b_id, fighter_a_name, fighter_b_name,
-        winner_id, method, round, time, weight_class, title_bout
-    
+        fight_id, event_id, date, fighter_a_id, fighter_b_id, fighter_a_name,
+        fighter_b_name, winner_id, method, round, time, duration_seconds,
+        weight_class, weight_lbs, title_bout
+
+        Beyond the original skeleton contract:
+          - date             required by snapshots.py:150 and the leak assertion at :181;
+                             comes from the event join, nothing else carries it
+          - duration_seconds derived from round + time + TIME FORMAT; replaces the
+                             `total_fight_seconds = 1` placeholder at snapshots.py:261
+                             and is the denominator for every per-minute rate feature
+          - weight_lbs       numeric companion to weight_class (see DATA_NOTES.md);
+                             weight_class stays the grouping key for percentiles
+
     Merge with events to attach event metadata and is_dwcs flag.
     """
     #Load events into DataFrame
@@ -101,7 +111,6 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
     # Use URL hashes to assign IDs to each row
     fight_results_df['fight_id'] = fight_results_df["URL"].str.rsplit("/",n=1).str[-1]
     fighter_details_df['fighter_id'] = fighter_details_df["URL"].str.rsplit("/",n=1).str[-1]
-    events_df['event_id'] = events_df["URL"].str.rsplit("/",n=1).str[-1]
 
     # Create name column for fighters
     # Outer .strip() matters: 17 fighters are mononyms with no FIRST name (Maheshate,
@@ -153,7 +162,23 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
     fight_results_df["weight_lbs"] = (
         fight_results_df["weight_class"].map(division_lookup).astype("Int64"))
 
-    
+    # Calculating duration using round #, time format, time. #time format doesn't matter since rounds are all 5 minutes
+    fight_results_df["duration_seconds"] = (pd.to_timedelta((fight_results_df["ROUND"]-1)*300,unit = "s") + pd.to_timedelta("00:" + fight_results_df["TIME"])).dt.total_seconds().astype(int)
+
+    # Merge events_details with fight_results
+    # left merge so all fight rows exist, right merge wouldn't guarantee this
+    # strip event column for both dataframes beforehand to avoid unexpected string comparison issues
+    fight_results_df["EVENT"] = fight_results_df["EVENT"].str.strip()
+    events_df["EVENT"] = events_df["EVENT"].str.strip()
+    events_df : pd.DataFrame = events_df.drop(columns="URL") # dropping redundant column
+    fight_and_event_results_df : pd.DataFrame = fight_results_df.merge(events_df,on = "EVENT",how = "left")
+
+    # Check that duplicate rows with missing dates are removed
+    fight_and_event_results_df :  pd.DataFrame = fight_and_event_results_df.dropna(subset=["DATE"])
+    assert not fight_and_event_results_df["DATE"].isna().any().any()
+    assert not fight_and_event_results_df["fight_id"].duplicated().any()
+
+    # Merge fight_and_event_results_df with fighter_details_df
 
 
     raise NotImplementedError("You implement the scraper.")
