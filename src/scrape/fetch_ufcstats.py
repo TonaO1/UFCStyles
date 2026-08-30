@@ -78,6 +78,52 @@ def flag_dwcs_events(events_df: pd.DataFrame) -> pd.DataFrame:
     return events_df
 
 
+def _attach_fighter_id(fights_df: pd.DataFrame, roster_df: pd.DataFrame,
+                       name_col: str, id_col: str) -> pd.DataFrame:
+    """
+    Left-join fighter_id onto a bout-name column, collapsing the fan-out that
+    ambiguous names produce.
+
+    Name is the only bridge between the bout tables and the fighter tables: no CSV
+    in the snapshot pairs a fighter URL with a bout (see DATA_NOTES.md). Eight names
+    in fighter_details map to two fighter_ids each and six of those appear as bout
+    names, so a plain left join returns both candidates and duplicates the fight row
+    -- 8,832 rows in, 8,882 out, 50 double-counted bouts.
+
+    Resolution: keep the candidate whose listed weight sits closest to the bout's
+    weight_lbs. Every colliding pair separates cleanly on weight (Bruno Silva is
+    125 vs 185, Michael McDonald 135 vs 205). A candidate with no weight on file
+    loses to any candidate that has one, which settles Mike Davis, where one of the
+    two pages is an empty stub.
+
+    Getting this wrong is worse than dropping the rows: merging a 125 lb flyweight
+    and a 185 lb middleweight under one fighter_id invents a fighter with two
+    incompatible styles, which lands in the embedding as a fake hybrid.
+
+    Rows are unique on fight_id going in and come back unique, in the same order.
+    """
+    fights_df = fights_df.copy()
+    fights_df["_row"] = np.arange(len(fights_df))
+
+    candidates = roster_df[["name", "fighter_id", "fighter_weight_lbs"]].rename(
+        columns={"name": name_col, "fighter_id": id_col})
+    merged = fights_df.merge(candidates, on=name_col, how="left")
+
+    # 9999 = no weight on file, loses to any real candidate. 5000 = catchweight bout
+    # with no weight_lbs to compare against; the candidates tie and the stable sort
+    # breaks it on source order, deterministically.
+    weight_gap = (merged["fighter_weight_lbs"] - merged["weight_lbs"]).abs()
+    merged["_penalty"] = np.where(
+        merged["fighter_weight_lbs"].isna(), 9999.0,
+        np.where(weight_gap.isna(), 5000.0, weight_gap.astype(float)))
+
+    return (merged.sort_values(["_row", "_penalty"], kind="stable")
+                  .drop_duplicates(subset="_row", keep="first")
+                  .sort_values("_row")
+                  .drop(columns=["_penalty", "fighter_weight_lbs", "_row"])
+                  .reset_index(drop=True))
+
+
 def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
     """
     Fetch individual bouts.
@@ -103,9 +149,11 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
 
     results_path : Path = SOURCE_DIR / "ufc_fight_results.csv" # Use to get all other stats
     fdetails_path : Path = SOURCE_DIR / "ufc_fighter_details.csv" # Use to get fighter ID
+    tott_path : Path = SOURCE_DIR / "ufc_fighter_tott.csv" # "tale of the tape" -- physicals
 
     fight_results_df : pd.DataFrame = pd.read_csv(results_path) # Use to get all other stats
     fighter_details_df : pd.DataFrame = pd.read_csv(fdetails_path) # Use to get fighter ID
+    fighter_tott_df : pd.DataFrame = pd.read_csv(tott_path) # Use to break name collisions
     # events_df is used to get event ID and time
 
     # Use URL hashes to assign IDs to each row
@@ -120,9 +168,32 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
         fighter_details_df["FIRST"].fillna("").str.strip() + " "
         + fighter_details_df["LAST"].fillna("").str.strip()).str.strip()
 
+    # Listed weight, used only to break name collisions in _attach_fighter_id.
+    # details and tott are the two halves of one fighter page and share URL -- the
+    # only unambiguous key anywhere in this source set.
+    fighter_details_df = fighter_details_df.merge(
+        fighter_tott_df[["URL", "WEIGHT"]], on="URL", how="left")
+    fighter_details_df["fighter_weight_lbs"] = (
+        fighter_details_df["WEIGHT"].str.extract(r"(\d+)").astype(float))
+
     # create fighter a and fighter b name columns
     fight_results_df[["fighter_a_name", "fighter_b_name"]] = (
     fight_results_df["BOUT"].str.split(" vs. ", expand=True, regex=False))
+
+    # Five bout names have no fighter_details row -- 13 bouts, all post-2014. Each is
+    # a different defect, and all five resolve with certainty by hand.
+    # Do NOT fuzzy-match these: "Patricio Freire" is one edit from "Patricky Freire",
+    # his brother and a separate fighter on the roster. An edit-distance matcher picks
+    # the wrong man and nothing downstream ever notices.
+    BOUT_NAME_FIXES = {
+        "Kai Kamaka": "Kai Kamaka III",            # generational suffix
+        "Bibulatov Magomed": "Magomed Bibulatov",  # name order reversed in BOUT
+        "Tre'ston Vines": "Treston Vines",         # apostrophe
+        "Rafael Cerquiera": "Rafael Cerqueira",    # transposition typo in BOUT
+        "Patricio Freire": "Patricio Pitbull",     # ring name, not surname
+    }
+    fight_results_df[["fighter_a_name", "fighter_b_name"]] = (
+        fight_results_df[["fighter_a_name", "fighter_b_name"]].replace(BOUT_NAME_FIXES))
 
     #Create winner name column --> will use to find winner id on merge
     fight_results_df["winner_name"] = np.select(
@@ -170,7 +241,8 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
     # strip event column for both dataframes beforehand to avoid unexpected string comparison issues
     fight_results_df["EVENT"] = fight_results_df["EVENT"].str.strip()
     events_df["EVENT"] = events_df["EVENT"].str.strip()
-    events_df : pd.DataFrame = events_df.drop(columns="URL") # dropping redundant column
+    events_df["event_id"] = events_df["URL"].str.rsplit("/", n=1).str[-1]
+    events_df : pd.DataFrame = events_df.drop(columns="URL") # hashed into event_id above
     fight_and_event_results_df : pd.DataFrame = fight_results_df.merge(events_df,on = "EVENT",how = "left")
 
     # Check that duplicate rows with missing dates are removed
@@ -178,10 +250,41 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
     assert not fight_and_event_results_df["DATE"].isna().any().any()
     assert not fight_and_event_results_df["fight_id"].duplicated().any()
 
-    # Merge fight_and_event_results_df with fighter_details_df
+    # Attach fighter ids. Two merges, each adding a COLUMN not a row: merge A reads
+    # only fighter_a_name, merge B only fighter_b_name, so the bout stays one row.
+    # _attach_fighter_id collapses the fan-out that colliding names would otherwise
+    # introduce.
+    fights_df : pd.DataFrame = _attach_fighter_id(
+        fight_and_event_results_df, fighter_details_df, "fighter_a_name", "fighter_a_id")
+    fights_df = _attach_fighter_id(
+        fights_df, fighter_details_df, "fighter_b_name", "fighter_b_id")
 
+    # winner_id is derived, not joined -- a third merge on winner_name would be a third
+    # chance to fan out. Reusing OUTCOME rather than comparing names keeps the 158
+    # NC/NC and D/D fights at None instead of silently awarding them to fighter B.
+    fights_df["winner_id"] = np.select(
+        [fights_df["OUTCOME"].eq("W/L"), fights_df["OUTCOME"].eq("L/W")],
+        [fights_df["fighter_a_id"], fights_df["fighter_b_id"]],
+        default=None,
+    )
 
-    raise NotImplementedError("You implement the scraper.")
+    # Post-merge contract. The pre-merge assert above runs before the joins and so
+    # cannot see fan-out. Both unresolved counts are frozen at zero: a refresh that
+    # introduces a new unmatched or colliding name fails loudly here rather than
+    # quietly dropping a fighter out of the roster.
+    assert not fights_df["fight_id"].duplicated().any(), "fighter join fanned out"
+    assert fights_df["fighter_a_id"].isna().sum() == 0, "unresolved fighter_a_id"
+    assert fights_df["fighter_b_id"].isna().sum() == 0, "unresolved fighter_b_id"
+
+    fights_df = fights_df.rename(columns={
+        "DATE": "date", "METHOD": "method", "ROUND": "round", "TIME": "time"})
+
+    return fights_df[[
+        "fight_id", "event_id", "date", "is_dwcs",
+        "fighter_a_id", "fighter_b_id", "fighter_a_name", "fighter_b_name",
+        "winner_id", "method", "round", "time", "duration_seconds",
+        "weight_class", "weight_lbs", "title_bout",
+    ]]
 
 
 def fetch_fight_stats(fights_df: pd.DataFrame) -> pd.DataFrame:
