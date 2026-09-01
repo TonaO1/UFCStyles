@@ -258,7 +258,7 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
         fight_and_event_results_df, fighter_details_df, "fighter_a_name", "fighter_a_id")
     fights_df = _attach_fighter_id(
         fights_df, fighter_details_df, "fighter_b_name", "fighter_b_id")
-
+    print('###',fights_df.iloc[0])
     # winner_id is derived, not joined -- a third merge on winner_name would be a third
     # chance to fan out. Reusing OUTCOME rather than comparing names keeps the 158
     # NC/NC and D/D fights at None instead of silently awarding them to fighter B.
@@ -302,6 +302,57 @@ def fetch_fight_stats(fights_df: pd.DataFrame) -> pd.DataFrame:
     Note: UFCStats records strike location and strike position as two independent partitions.
     Both sum to sig_str_landed.
     """
+    fight_stats_path : Path = SOURCE_DIR / "ufc_fight_stats.csv"
+
+    fight_stats_df : pd.DataFrame = pd.read_csv(fight_stats_path)
+
+
+    # Change round column to int number
+    fight_stats_df["ROUND"] = fight_stats_df["ROUND"].str.split(" ").str[-1].astype('Int64')
+    # Change KD column to int number
+    fight_stats_df["KD"] = fight_stats_df["KD"].astype('Int64')
+
+    # Extract sig str land and att using str split
+    fight_stats_df[["sig_str_landed","sig_str_att"]] =  fight_stats_df["SIG.STR."].str.strip().str.split(" of ",expand=True)
+
+    # Extract head landed and att using str split
+    fight_stats_df[["head_landed","head_att"]] = fight_stats_df["HEAD"].str.strip().str.split(" of ",expand=True)
+
+    # Extract body landed and att using str split
+    fight_stats_df[["body_landed","body_att"]] = fight_stats_df["BODY"].str.strip().str.split(" of ",expand=True)
+
+    # Extract leg landed and att using str split
+    fight_stats_df[["leg_landed","leg_att"]] = fight_stats_df["LEG"].str.strip().str.split(" of ",expand=True)
+
+    # Extract distance landed and att using str split
+    fight_stats_df[["distance_landed","distance_att"]] = fight_stats_df["DISTANCE"].str.strip().str.split(" of ",expand=True)
+
+    # Extract body landed and att using str split
+    fight_stats_df[["clinch_landed","clinch_att"]] = fight_stats_df["CLINCH"].str.strip().str.split(" of ",expand=True)
+
+    # Extract body landed and att using str split
+    fight_stats_df[["ground_landed","ground_att"]] = fight_stats_df["GROUND"].str.strip().str.split(" of ",expand=True)
+
+    # Extract body landed and att using str split
+    fight_stats_df[["td_landed","td_att"]] = fight_stats_df["TD"].str.strip().str.split(" of ",expand=True)
+
+    # confirm SUB.ATT column is int number
+    fight_stats_df["sub_att"] = fight_stats_df["SUB.ATT"].astype('Int64')
+    
+    # confirm REV. column is int number
+    fight_stats_df["rev"] = fight_stats_df["REV."].astype('Int64')
+
+
+    '''
+
+        Join plans:
+        Read ufc_fight_details.csv and procure fight_id from there to then merge with fights_df and eradicate duplicated rows
+    '''
+
+    print("\ndude\n",fight_stats_df.iloc[0])
+
+
+
     raise NotImplementedError("You implement the scraper.")
 
 
