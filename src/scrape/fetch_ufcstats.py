@@ -34,6 +34,13 @@ import boto3
 # Absolute ile path for accessing scraped data u
 SOURCE_DIR = Path(__file__).resolve().parents[2] / "data"/ "scrape_ufc_stats-main"
 
+BOUT_NAME_FIXES = {
+    "Kai Kamaka": "Kai Kamaka III",            # generational suffix
+    "Bibulatov Magomed": "Magomed Bibulatov",  # name order reversed in BOUT
+    "Tre'ston Vines": "Treston Vines",         # apostrophe
+    "Rafael Cerquiera": "Rafael Cerqueira",    # transposition typo in BOUT
+    "Patricio Freire": "Patricio Pitbull",     # ring name, not surname
+}
 def fetch_events() -> pd.DataFrame:
     """
     Fetch events from UFCStats.
@@ -184,14 +191,6 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
     # a different defect, and all five resolve with certainty by hand.
     # Do NOT fuzzy-match these: "Patricio Freire" is one edit from "Patricky Freire",
     # his brother and a separate fighter on the roster. An edit-distance matcher picks
-    # the wrong man and nothing downstream ever notices.
-    BOUT_NAME_FIXES = {
-        "Kai Kamaka": "Kai Kamaka III",            # generational suffix
-        "Bibulatov Magomed": "Magomed Bibulatov",  # name order reversed in BOUT
-        "Tre'ston Vines": "Treston Vines",         # apostrophe
-        "Rafael Cerquiera": "Rafael Cerqueira",    # transposition typo in BOUT
-        "Patricio Freire": "Patricio Pitbull",     # ring name, not surname
-    }
     fight_results_df[["fighter_a_name", "fighter_b_name"]] = (
         fight_results_df[["fighter_a_name", "fighter_b_name"]].replace(BOUT_NAME_FIXES))
 
@@ -258,7 +257,7 @@ def fetch_fights(events_df: pd.DataFrame) -> pd.DataFrame:
         fight_and_event_results_df, fighter_details_df, "fighter_a_name", "fighter_a_id")
     fights_df = _attach_fighter_id(
         fights_df, fighter_details_df, "fighter_b_name", "fighter_b_id")
-    print('###',fights_df.iloc[0])
+
     # winner_id is derived, not joined -- a third merge on winner_name would be a third
     # chance to fan out. Reusing OUTCOME rather than comparing names keeps the 158
     # NC/NC and D/D fights at None instead of silently awarding them to fighter B.
@@ -303,10 +302,16 @@ def fetch_fight_stats(fights_df: pd.DataFrame) -> pd.DataFrame:
     Both sum to sig_str_landed.
     """
     fight_stats_path : Path = SOURCE_DIR / "ufc_fight_stats.csv"
+    fight_details_path: Path = SOURCE_DIR / "ufc_fight_details.csv"
 
     fight_stats_df : pd.DataFrame = pd.read_csv(fight_stats_path)
+    fight_details_df : pd.DataFrame = pd.read_csv(fight_details_path)
 
-
+    # make sure the number of malformed rows are the same ones as always - data we purposefully excluded
+    # Avoid excluding new data that we haven't agreed to exclude
+    assert fight_stats_df["FIGHTER"].isna().sum() == 42
+    # Drop maliformed rows
+    fight_stats_df : pd.DataFrame = fight_stats_df.dropna(subset=["FIGHTER"])
     # Change round column to int number
     fight_stats_df["ROUND"] = fight_stats_df["ROUND"].str.split(" ").str[-1].astype('Int64')
     # Change KD column to int number
@@ -314,6 +319,9 @@ def fetch_fight_stats(fights_df: pd.DataFrame) -> pd.DataFrame:
 
     # Extract sig str land and att using str split
     fight_stats_df[["sig_str_landed","sig_str_att"]] =  fight_stats_df["SIG.STR."].str.strip().str.split(" of ",expand=True)
+
+    # Extract sig str land and att using str split
+    fight_stats_df[["tot_str_landed","tot_str_att"]] =  fight_stats_df["TOTAL STR."].str.strip().str.split(" of ",expand=True)
 
     # Extract head landed and att using str split
     fight_stats_df[["head_landed","head_att"]] = fight_stats_df["HEAD"].str.strip().str.split(" of ",expand=True)
@@ -338,22 +346,51 @@ def fetch_fight_stats(fights_df: pd.DataFrame) -> pd.DataFrame:
 
     # confirm SUB.ATT column is int number
     fight_stats_df["sub_att"] = fight_stats_df["SUB.ATT"].astype('Int64')
-    
+
     # confirm REV. column is int number
     fight_stats_df["rev"] = fight_stats_df["REV."].astype('Int64')
 
 
-    '''
+    # Left Merge with fight_details_df on "BOUT" and "EVENT" to avoid mixing rematches with each other
+    fight_stats_df : pd.DataFrame = fight_stats_df.merge(fight_details_df,on=["BOUT","EVENT"],how="left")
+    fight_stats_df["fight_id"] = fight_stats_df["URL"].str.rsplit("/",n=1).str[-1].str.strip()
 
-        Join plans:
-        Read ufc_fight_details.csv and procure fight_id from there to then merge with fights_df and eradicate duplicated rows
-    '''
+    # Get rid of duplicate/useless columns
+    fight_stats_df = fight_stats_df.drop(columns=["REV.","SUB.ATT","TD","GROUND","CLINCH","DISTANCE","LEG","BODY","HEAD","SIG.STR.","TOTAL STR.","URL"])
 
-    print("\ndude\n",fight_stats_df.iloc[0])
+    before = len(fight_stats_df)
+    # Inner join on fight_id with fights_df to narrow down what fighter_id is 
+    fight_stats_df : pd.DataFrame = fight_stats_df.merge(fights_df[["fight_id","fighter_a_id", "fighter_b_id", "fighter_a_name", "fighter_b_name"]],on="fight_id",how="inner")
+
+    print("Rows dropped by inner join: ",before-len(fight_stats_df))
+    # Handle edge cases where names and nicknames are used in tandem i.e Patricio Pitbull 
+    fight_stats_df["FIGHTER"] = fight_stats_df["FIGHTER"].str.strip().replace(BOUT_NAME_FIXES)
+
+    # set fighter_id based on whether FIGHTER == fighter a name or fighter b name
+    fight_stats_df["fighter_id"] = np.select(
+        [fight_stats_df["FIGHTER"].eq(fight_stats_df["fighter_a_name"]),fight_stats_df["FIGHTER"].eq(fight_stats_df["fighter_b_name"])],
+        [fight_stats_df["fighter_a_id"],fight_stats_df["fighter_b_id"]]
+    , default=None)
+
+    assert fight_stats_df["fighter_id"].notna().all(), "stats row matched neither fighter"
+
+    # Remove valid recorded duplicate events like UFC noche etc
+    fight_stats_df = fight_stats_df.drop_duplicates(subset=["fight_id", "FIGHTER", "ROUND"])
+    assert not fight_stats_df.duplicated(subset=["fight_id", "fighter_id", "ROUND"]).any()
+
+    # Convert relevant statistics into numbers
+    str_stats = ["tot_str_landed","tot_str_att","sig_str_landed","sig_str_att","head_landed","head_att","body_landed","body_att","leg_landed","leg_att","distance_landed","distance_att","clinch_landed","clinch_att","ground_landed","ground_att","td_landed","td_att","sub_att","rev"]
+    fight_stats_df[str_stats] = fight_stats_df[str_stats].astype("Int64")
 
 
+    # Rename columns to honor contracts
+    fight_stats_df : pd.DataFrame = fight_stats_df.rename(columns={"CTRL":"ctrl_time","ROUND":"round"})
 
-    raise NotImplementedError("You implement the scraper.")
+    # drop useless columns
+    fight_stats_df : pd.DataFrame = fight_stats_df.drop(columns = ["fighter_a_id","fighter_b_id","fighter_a_name","fighter_b_name","SIG.STR. %","TD %","EVENT","BOUT","FIGHTER"])
+    # print(fight_stats_df.iloc[0])
+
+    return fight_stats_df
 
 
 def fetch_fighters() -> pd.DataFrame:
