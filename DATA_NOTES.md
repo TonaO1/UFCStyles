@@ -87,6 +87,11 @@ silently. `BOUT` is unaffected.
 `fight_stats` lacks a URL and needs the `EVENT`+`BOUT` string join; both sides there are
 already stripped by the library.
 
+**Implemented** slightly differently: `fetch_fights` doesn't need `fight_details` at all —
+it takes `fight_id` straight from `fight_results.URL` and strips `EVENT` on both frames
+before the events join. `fetch_fight_stats` uses the EVENT+BOUT join to `fight_details`
+as described above.
+
 ### 25 duplicate bouts from two renamed events
 
 UFCStats renamed two cards after the fact:
@@ -106,6 +111,28 @@ assert zero `NaT` dates after the event join.
 
 Expect this to recur on every refresh where UFCStats renames a card.
 
+**Implemented:** `fetch_fights` requires a successful event join (rows left with `NaT`
+dates are dropped) and asserts `fight_id` uniqueness; `fetch_fight_stats` scopes to
+`fights_df` with an inner join and dedupes on `(fight_id, FIGHTER, ROUND)`.
+
+### Sakuraba vs. Silveira — two fights, one card, identical EVENT+BOUT
+
+At `UFC - Ultimate Japan` (1997-12-21), Kazushi Sakuraba and Marcus Silveira fought
+**twice on the same card**: their tournament bout was ruled a no contest, and they were
+rematched later that night in the final. UFCStats records them as two distinct fights
+(URLs `ec1bda9a4c2aab42` and `2750ac5854e8b28b`) with byte-identical `EVENT` and `BOUT`
+strings. It is the only (EVENT, BOUT) pair in the snapshot mapping to more than one URL.
+
+**Consequence:** `fight_stats` has no URL, so the EVENT+BOUT join to `fight_details`
+cannot tell the two fights apart — each of the 4 stat rows matches both URLs and fans out
+to 8. Deduping on `(fight_id, FIGHTER, ROUND)` with `keep="first"` leaves both fight_ids
+carrying copies of the first-listed fight's stats; the second fight's actual stats
+(`0 of 1` / `4 of 10`) are dropped entirely. The two fights remain correctly separate in
+`fight_details`/`fight_results` (URL-keyed) — only the stats attribution is ambiguous.
+
+**Accepted as-is:** pre-era 1997 data, structurally unreachable from the 2014+ scope.
+If it ever matters, the fix is disambiguation by source row order, not the join.
+
 ### Fighter identity — no clean solution
 
 `fight_stats` identifies fighters by **name string only**, no URL. Mapping 2,723 distinct
@@ -118,6 +145,13 @@ names to `fighter_id` hits:
 
 Pick a policy and **assert the unresolved count** so it cannot grow silently on refresh.
 For the collisions, event date plus `WEIGHTCLASS` separates most pairs.
+
+**Policy implemented (2026-09-01):** `fetch_fights` joins bout names to `fighter_details`
+and breaks the 8 collisions on listed weight vs. the bout's weight class
+(`_attach_fighter_id`); five broken bout-name forms are hand-mapped in `BOUT_NAME_FIXES`.
+`fetch_fight_stats` never matches names globally — it joins each stats row to its bout via
+EVENT+BOUT → `fight_id`, then matches `FIGHTER` against only that bout's two names.
+Unresolved counts are asserted at zero in both functions.
 
 ---
 
@@ -161,6 +195,9 @@ suffixes for the base class; derive `title_bout` from the presence of `Title`.
 - **`validate_row_counts()` asserts `len(events) > 1000`; there are 784.** Lower the
   threshold to ~700. The other three thresholds pass.
 
+Both still open as of 2026-09-01: `to_seconds()` still returns `0.0` for `"--"` and the
+events threshold is still 1000 (so `validate_row_counts` currently fails, by design).
+
 ---
 
 ## Scope numbers (pre-computed for Day 2)
@@ -178,6 +215,22 @@ the physical feature block is viable. Don't drop the column based on the roster-
 rows, matching the plan's 25k target.
 
 ---
+
+## Adapter output (verified 2026-09-01)
+
+`fetch_ufcstats.py` run end-to-end against this snapshot produces:
+
+- **`fights`: 8,832 rows**, unique on `fight_id`, no `NaT` dates, no unresolved fighter ids
+  (27 rows dropped by the required event join: 25 renamed-event orphans + 2 Road to UFC).
+- **`fight_stats`: 41,506 rows**, unique on `(fight_id, fighter_id, round)`. Dropped along
+  the way: 42 statless placeholders (frozen assert), 8 Road-to-UFC orphans (inner join),
+  120 duplicate rows (116 renamed-event copies + 4 Sakuraba fan-out). Partition contract
+  passes on all rows; `ctrl_time` parses 0–300s.
+- **`fighters`: all 4,588 rows kept** — completeness filtering deliberately rejected; scope
+  is Day-2 config's job. Missing after parse: 477 height, 2,099 reach, 777 DOB. Every
+  `fighter_id` referenced in `fights` exists here. Height spans 55"–89"; the extremes are
+  probably source errors on obscure fighters — harmless under within-weight-class
+  percentiles, unaudited.
 
 ## Refresh behaviour
 

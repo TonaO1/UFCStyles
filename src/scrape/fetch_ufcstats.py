@@ -399,11 +399,40 @@ def fetch_fighters() -> pd.DataFrame:
     
     Returns:
         DataFrame with columns:
-        fighter_id, fighter_name, height_cm, reach_cm, stance, dob
+        fighter_id, fighter_name, height_in, reach_in, stance, dob
     
     Note: height and reach are in cm or inches depending on source. Standardize.
     """
-    raise NotImplementedError("You implement the scraper.")
+    fighter_tott_dir = SOURCE_DIR / "ufc_fighter_tott.csv"
+
+    fighter_tott_df : pd.DataFrame = pd.read_csv(fighter_tott_dir)
+
+
+    fighter_tott_df["fighter_id"] = fighter_tott_df["URL"].str.rsplit("/",n=1).str[-1]
+    fighter_tott_df : pd.DataFrame = fighter_tott_df.drop(columns = ["URL","WEIGHT"])
+    # Uphold column contracts
+    fighter_tott_df : pd.DataFrame = fighter_tott_df.rename(columns={"FIGHTER":"fighter_name","HEIGHT":"height_in","REACH":"reach_in","STANCE":"stance","DOB":"dob"})
+
+
+    # "5' 8\"" -> 68; "--" fails the match -> <NA> in both captures
+    parts = fighter_tott_df["height_in"].str.extract(r"(\d+)' (\d+)\"")
+    fighter_tott_df["height_in"] = (parts[0].astype("Int64") * 12) + parts[1].astype("Int64")
+
+     # "80"" -> 80; "--" fails the match -> <NA> in both captures
+    reach = fighter_tott_df["reach_in"].str.extract(r"(\d+)\"")
+    fighter_tott_df["reach_in"] = (reach[0].astype("Int64"))
+
+    # # Ensure that empty cells are NaN
+    # s =  fighter_tott_df["stance"]
+    # fighter_tott_df["stance"] =  s.mask(s.isna(),s.str.strip(""))
+
+    assert not fighter_tott_df["stance"].str.strip().eq("").any(), "unexpected empty-string stance"
+
+    # Ensure that dob is in datetime format like we did with event_date in fetch_events
+    #Standardize date format to (YYYY-MM-DD)
+    fighter_tott_df["dob"] = pd.to_datetime(fighter_tott_df["dob"].str.strip(),format = "%b %d, %Y",errors="coerce")
+
+    return fighter_tott_df
 
 
 # ============================================================================
@@ -465,7 +494,7 @@ def validate_control_time(fight_stats_df: pd.DataFrame) -> bool:
     """
     def to_seconds(s):
         if pd.isna(s) or s == "--":
-            return 0.0
+            return float("nan")
         parts = str(s).split(":")
         if len(parts) != 2:
             raise ValueError(f"Bad ctrl_time format: {s}")
@@ -481,7 +510,7 @@ def validate_row_counts(events: pd.DataFrame, fights: pd.DataFrame,
     """
     Sanity check: row counts in plausible ranges.
     """
-    assert len(events) > 1000, f"Too few events: {len(events)}"
+    assert len(events) >= 784, f"Too few events: {len(events)}"
     assert len(fights) > 5000, f"Too few fights: {len(fights)}"
     assert len(fight_stats) > 10000, f"Too few fight_stats rows: {len(fight_stats)}"
     assert len(fighters) > 1000, f"Too few fighters: {len(fighters)}"
