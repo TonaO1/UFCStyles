@@ -1,0 +1,117 @@
+{
+  "date": "2026-09-09T16:22:53.455104",
+  "roster_3plus": 1882,
+  "roster_5plus": 1267,
+  "bouts_by_year": {
+    "1994": 31,
+    "1995": 40,
+    "1996": 43,
+    "1997": 41,
+    "1998": 25,
+    "1999": 44,
+    "2000": 43,
+    "2001": 40,
+    "2002": 53,
+    "2003": 41,
+    "2004": 39,
+    "2005": 80,
+    "2006": 158,
+    "2007": 171,
+    "2008": 201,
+    "2009": 215,
+    "2010": 253,
+    "2011": 300,
+    "2012": 341,
+    "2013": 386,
+    "2014": 503,
+    "2015": 473,
+    "2016": 493,
+    "2017": 457,
+    "2018": 474,
+    "2019": 516,
+    "2020": 456,
+    "2021": 509,
+    "2022": 511,
+    "2023": 520,
+    "2024": 517,
+    "2025": 520,
+    "2026": 338
+  },
+  "decision_table": [
+    {
+      "era_start": 2010,
+      "min_bouts": 3,
+      "n_fighters": 1689,
+      "snapshots_extend": 9632,
+      "snapshots_truncate": 9170
+    },
+    {
+      "era_start": 2010,
+      "min_bouts": 5,
+      "n_fighters": 1127,
+      "snapshots_extend": 9213,
+      "snapshots_truncate": 8870
+    },
+    {
+      "era_start": 2012,
+      "min_bouts": 3,
+      "n_fighters": 1588,
+      "snapshots_extend": 9000,
+      "snapshots_truncate": 8411
+    },
+    {
+      "era_start": 2012,
+      "min_bouts": 5,
+      "n_fighters": 1047,
+      "snapshots_extend": 8538,
+      "snapshots_truncate": 8125
+    },
+    {
+      "era_start": 2014,
+      "min_bouts": 3,
+      "n_fighters": 1459,
+      "snapshots_extend": 8176,
+      "snapshots_truncate": 7443
+    },
+    {
+      "era_start": 2014,
+      "min_bouts": 5,
+      "n_fighters": 969,
+      "snapshots_extend": 7751,
+      "snapshots_truncate": 7187
+    },
+    {
+      "era_start": 2016,
+      "min_bouts": 3,
+      "n_fighters": 1258,
+      "snapshots_extend": 7071,
+      "snapshots_truncate": 6160
+    },
+    {
+      "era_start": 2016,
+      "min_bouts": 5,
+      "n_fighters": 846,
+      "snapshots_extend": 6654,
+      "snapshots_truncate": 5932
+    },
+    {
+      "era_start": 2017,
+      "min_bouts": 3,
+      "n_fighters": 1185,
+      "snapshots_extend": 6441,
+      "snapshots_truncate": 5474
+    },
+    {
+      "era_start": 2017,
+      "min_bouts": 5,
+      "n_fighters": 784,
+      "snapshots_extend": 6001,
+      "snapshots_truncate": 5268
+    }
+  ],
+  "decisions": {
+    "min_ufc_bouts": 3,
+    "era_start": "2014-01-01",
+    "history_strategy": "extend"
+  }
+}

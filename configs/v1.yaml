@@ -2,14 +2,17 @@
 # Edit these before running any pipeline.
 
 # === DATA SCOPE ===
+# Day-2 decisions (2026-09-09). Confirmed against data/scope_analysis.json.
+# 2014 + 3+ + extend => 1,459 fighters, 8,176 snapshot rows.
 roster:
-  min_ufc_bouts: 5 # Filter to fighters with 5+ non-DWCS UFC appearances. (3+ if too thin.)
-  exclude_dwcs: true
-  era_start: "2014-01-01" # Tunable. Set from day-2 scope analysis, not narrative.
+  min_ufc_bouts: 3 # 1,459 fighters in-era vs 969 at 5+. Roster breadth for the
+    # 200-fighter label sample; shrinkage (k=75) absorbs the thinner per-fighter aggregates.
+  exclude_dwcs: true # No-op: DWCS unreachable from the events index. Kept as tripwire.
+  era_start: "2014-01-01" # Volume/quality knee. 71% of bouts, 90.4% reach coverage.
 
 history:
   min_prior_fights: 3 # Don't produce snapshot unless fighter has 3+ prior bouts.
-  strategy: "extend" # "extend" = allow pre-cutoff bouts; "truncate_at_cutoff" = reset at era_start
+  strategy: "extend" # Career-wide history: a 2012 bout informs 2015 style. +564 rows (8%).
 
 # === FEATURES ===
 features:
