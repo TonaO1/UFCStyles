@@ -200,19 +200,60 @@ events threshold is still 1000 (so `validate_row_counts` currently fails, by des
 
 ---
 
-## Scope numbers (pre-computed for Day 2)
+## Scope numbers (recomputed from adapter output, 2026-09-09)
+
+Counted from `data/raw/2026-09-01/fights.csv`, per fighter, all years:
 
 | Threshold | Fighters | REACH complete | HEIGHT | STANCE |
 |---|---|---|---|---|
-| 3+ UFC bouts | 1,875 | 94.0% | 99.7% | 99.6% |
-| 5+ UFC bouts | 1,267 | 97.0% | 99.9% | 99.8% |
+| 3+ UFC bouts | 1,882 | 93.7% | 99.7% | 99.8% |
+| 5+ UFC bouts | 1,267 | 97.1% | 100.0% | 100.0% |
 
-Reach is 45.7% missing across all 4,588 fighters but only **3% missing on the 5+ roster** —
-the physical feature block is viable. Don't drop the column based on the roster-wide number.
+**Corrected.** This table previously read 1,875 / 94.0 / 99.7 / 99.6 at the 3+ threshold.
+The 5+ fighter count (1,267) reproduces exactly, but 1,875 could not be reproduced by any
+method: raw `BOUT` names give 1,884, deduped on `URL` 1,881, restricted to names present in
+`fighter_tott` 1,880. The adapter output — what the code actually consumes — gives **1,882**.
+Numbers above are now adapter-derived, so `scope_count.py` and this file agree.
+
+Reach is 45.7% missing across all 4,588 fighters but only **6% missing on the 3+ roster** and
+3% on 5+ — the physical feature block is viable. Don't drop the column based on the
+roster-wide number.
 
 **Bouts per year:** steady at ~1,000/year from 2014 onward (2014: 1,006 · 2019: 1,032 ·
-2023: 1,040 · 2025: 1,040). `era_start: 2014` yields roughly 12k bouts / 24k fighter-bout
-rows, matching the plan's 25k target.
+2023: 1,040 · 2025: 1,040). `era_start: 2014` retains 6,287 bouts / 12,574 fighter-bout rows.
+
+**The plan's 25k target does not survive contact.** That figure counts fighter-bout rows
+*before* `history.min_prior_fights: 3` removes every fighter's first three bouts. Actual
+snapshot yield at the chosen config (2014 / 5+ / extend) is **7,751 rows** — roughly a third
+of the assumed training set, and squarely in the "5k samples, 25 features → overfit is
+instant" regime. Shrinkage and dropout are load-bearing, not optional.
+
+### Per-fighter-bout physical coverage by year
+
+The table above is per *fighter*. Per *fighter-bout* — the shape the snapshot table takes —
+coverage varies by year, and reach is the only completeness signal that moves inside the
+era-candidate range:
+
+| Year | 2010 | 2012 | 2014 | 2016 | 2017 | 2018 | 2020–24 | 2025 | 2026 |
+|---|---|---|---|---|---|---|---|---|---|
+| reach % | 92.3 | 90.9 | 90.4 | 95.3 | 98.1 | 99.5 | ~100 | 98.6 | 91.0 |
+
+Height and stance sit at ~100% throughout until the same recent drop.
+
+**The recent decline is scrape freshness, not a data-quality era effect** — recent debutants
+are not in `fighter_tott.csv` yet. 2026 falls to 91.0% reach / 91.3% height / 93.0% stance.
+This lands inside the **test split** (2023-07-01 onward), so the physical block is thinner at
+eval time than at train time: a train/test distribution shift, not a scope question. Decide
+imputation in Day 3 and re-check after every refresh.
+
+### Stat completeness does not constrain the era
+
+The Day-2 plan assumed strike-position completeness would reveal an era knee. It does not.
+The 42 statless rows are already dropped by `fetch_ufcstats.py`, the partition contract passes
+on everything remaining, and the only bouts with **zero** stat rows are the 21 in 1994–1998.
+Fight statistics are complete from **1999** onward, so the check cannot discriminate between
+2010 and 2017. Likewise `CTRL == "--"` is entirely pre-2000. Recorded as an explicit negative
+so the question stays answered rather than re-opened.
 
 ---
 
