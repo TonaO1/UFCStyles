@@ -224,7 +224,7 @@ roster-wide number.
 
 **The plan's 25k target does not survive contact.** That figure counts fighter-bout rows
 *before* `history.min_prior_fights: 3` removes every fighter's first three bouts. Actual
-snapshot yield at the chosen config (2014 / 3+ / extend) is **8,176 rows** — roughly a third
+snapshot yield at the chosen config (2014 / 5+ / extend) is **7,751 rows** — roughly a third
 of the assumed training set, and squarely in the "5k samples, 25 features → overfit is
 instant" regime. Shrinkage and dropout are load-bearing, not optional.
 

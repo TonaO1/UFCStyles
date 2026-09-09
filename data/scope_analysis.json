@@ -1,5 +1,5 @@
 {
-  "date": "2026-09-09T16:22:53.455104",
+  "date": "2026-09-09T16:25:30.584152",
   "roster_3plus": 1882,
   "roster_5plus": 1267,
   "bouts_by_year": {
@@ -110,7 +110,7 @@
     }
   ],
   "decisions": {
-    "min_ufc_bouts": 3,
+    "min_ufc_bouts": 5,
     "era_start": "2014-01-01",
     "history_strategy": "extend"
   }

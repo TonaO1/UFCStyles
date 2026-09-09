@@ -7,21 +7,21 @@ Snapshot: `data/raw/2026-09-01` (8,832 bouts, 4,588 fighters)
 
 | | Value | Why |
 |---|---|---|
-| `roster.min_ufc_bouts` | **3** | 1,459 fighters in-era vs 969 at 5+. The extra 490 fighters add only 425 snapshot rows — they sit near `min_prior_fights=3`, so they contribute breadth rather than volume. Taken deliberately: the Day-5 label sample is 200 fighters stratified by era tercile and weight class, and a wider roster stratifies better. Shrinkage (`k=75`) is what absorbs the thinner per-fighter aggregates. |
+| `roster.min_ufc_bouts` | **5** | 969 fighters in-era. Dropping to 3+ adds 490 fighters (+51%) for only 425 snapshot rows (+5.5%) — those fighters sit at the `min_prior_fights=3` boundary and most contribute zero or one snapshot each. That is per-fighter noise without training volume, so the tighter roster wins. |
 | `roster.era_start` | **2014-01-01** | Keeps 71% of all bouts (6,287) at 90.4% reach coverage. 2016 buys 5 points of reach for 1,100 fewer rows. |
-| `history.strategy` | **extend** | A fighter's 2012 bouts inform their 2015 style. Worth +733 rows (10%) at this cutoff. |
+| `history.strategy` | **extend** | A fighter's 2012 bouts inform their 2015 style. Worth +564 rows (8%) at this cutoff. |
 
 ## Decision table
 
 ```
  era  bouts  fighters   extend  truncate     gain
-2010    3+      1689     9632      9170   +462 (5%)
-2012    3+      1588     9000      8411   +589 (7%)
-2014    3+      1459     8176      7443   +733 (10%)   <-- chosen
-2016    3+      1258     7071      6160   +911 (15%)
-2017    3+      1185     6441      5474   +967 (18%)
+2010    5+      1127     9213      8870   +343 (4%)
+2012    5+      1047     8538      8125   +413 (5%)
+2014    5+       969     7751      7187   +564 (8%)    <-- chosen
+2016    5+       846     6654      5932   +722 (12%)
+2017    5+       784     6001      5268   +733 (14%)
 
-2014    5+       969     7751      7187   +564 (8%)    (the 5+ alternative)
+2014    3+      1459     8176      7443   +733 (10%)   (the 3+ alternative)
 ```
 
 The extend gain grows with a later cutoff — the later you cut, the more history sits
@@ -41,9 +41,9 @@ signal that varies inside the candidate range: 92.3% (2010) → 90.4% (2014) →
 
 ## Two things to carry into Day 3
 
-**1. Snapshot yield is ~8.2k rows, not 25k.** The plan's target came from the raw
+**1. Snapshot yield is ~7.7k rows, not 25k.** The plan's target came from the raw
 fighter-bout count *before* `min_prior_fights=3` removes every fighter's first three
-bouts. At ~8.2k rows against 25–28 features, shrinkage and dropout are load-bearing,
+bouts. At ~7.7k rows against 25–28 features, shrinkage and dropout are load-bearing,
 not optional. `training.autoencoder.d_in: 28` is still a placeholder — set it from the
 real feature count once `snapshots.py` produces columns.
 
@@ -63,5 +63,5 @@ to reproduce 1,875 from the raw scraper CSVs give 1,884 (raw `BOUT` names), 1,88
 them 1,875. The original figure could not be reproduced by any method, so `DATA_NOTES.md`
 has been corrected to the adapter-derived numbers, which are what the code actually uses.
 
-This matters more now than it did: 3+ is the chosen threshold, so it is the number the
-roster is built from.
+The chosen threshold is 5+, whose count reproduces cleanly, so this does not affect the
+scope decision — but the corrected figure is what `scope_count.py` now reports.

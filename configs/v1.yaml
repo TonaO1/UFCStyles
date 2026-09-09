@@ -3,10 +3,10 @@
 
 # === DATA SCOPE ===
 # Day-2 decisions (2026-09-09). Confirmed against data/scope_analysis.json.
-# 2014 + 3+ + extend => 1,459 fighters, 8,176 snapshot rows.
+# 2014 + 5+ + extend => 969 fighters, 7,751 snapshot rows.
 roster:
-  min_ufc_bouts: 3 # 1,459 fighters in-era vs 969 at 5+. Roster breadth for the
-    # 200-fighter label sample; shrinkage (k=75) absorbs the thinner per-fighter aggregates.
+  min_ufc_bouts: 5 # 969 fighters in-era. 3+ adds 490 fighters but only 425 rows --
+    # they sit at the min_prior_fights boundary, so it is noise without volume.
   exclude_dwcs: true # No-op: DWCS unreachable from the events index. Kept as tripwire.
   era_start: "2014-01-01" # Volume/quality knee. 71% of bouts, 90.4% reach coverage.
 
