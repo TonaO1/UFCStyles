@@ -187,16 +187,25 @@ suffixes for the base class; derive `title_bout` from the presence of `Title`.
 - **`CTRL` is uniformly well-formed** — 0 malformed values, 432 `"--"`.
 - 42 of 41,672 stat rows are unparseable — genuinely statless old fights, expected NaN.
 
-### Two judgment calls to make deliberately
+### Two judgment calls, both now made
 
-- **`CTRL == "--"` means *unrecorded*, not zero.** The skeleton's `to_seconds()` maps it to
-  `0.0`, which reads downstream as "held zero control time." 432 rows, mostly old fights.
-  Return `NaN` or keep `0.0` knowingly.
-- **`validate_row_counts()` asserts `len(events) > 1000`; there are 784.** Lower the
-  threshold to ~700. The other three thresholds pass.
-
-Both still open as of 2026-09-01: `to_seconds()` still returns `0.0` for `"--"` and the
-events threshold is still 1000 (so `validate_row_counts` currently fails, by design).
+- **`CTRL == "--"` means *unrecorded*, not zero.** The skeleton's `to_seconds()` mapped it
+  to `0.0`, which reads downstream as "held zero control time." 432 rows, all pre-2000.
+  **Resolved:** maps to `NaN`, and the parse now lives in `fetch_fight_stats` as the
+  module-level `parse_ctrl_seconds()` — it was previously created *inside*
+  `validate_control_time()`, which made a `validate_*` function the sole producer of a
+  column the saved CSV depends on. `validate_control_time()` is now a pure check: column
+  present, dtype `float64` (Int64 would silently drop the NaNs), NaN rows matching `"--"`
+  rows exactly, values within one round. Verified 41,074 recorded (0–300s) / 432 NaN,
+  reproducing the committed `fight_stats.csv` exactly.
+  Downstream aggregation must still skip rather than zero-fill — pandas `.sum()` treats
+  NaN as 0, which reintroduces the same lie.
+- **`validate_row_counts()` asserted `len(events) > 1000`; there are 784.**
+  **Changed, not settled:** the threshold is now `>= 784` — pinned to the exact current
+  count, so it passes by construction and only fires if a refresh *loses* events. The other
+  three are loose floors well under their real values (`> 5000` / 8,832 · `> 10000` / 41,506
+  · `> 1000` / 4,588). Decide whether events should match that pattern (~700) or stay an
+  exact tripwire; right now it is the odd one out by accident, not by argument.
 
 ---
 
