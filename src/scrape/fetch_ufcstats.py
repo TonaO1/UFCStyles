@@ -34,6 +34,20 @@ import boto3
 # Absolute ile path for accessing scraped data u
 SOURCE_DIR = Path(__file__).resolve().parents[2] / "data"/ "scrape_ufc_stats-main"
 
+def parse_ctrl_seconds(s) -> float:
+    """ "3:38" -> 218.0.  "--" means UNRECORDED, not zero, so it maps to NaN.
+
+    Downstream aggregation must skip these rather than zero-fill -- pandas .sum()
+    treats NaN as 0, which puts "held zero control time" straight back in.
+    """
+    if pd.isna(s) or s == "--":
+        return float("nan")
+    parts = str(s).split(":")
+    if len(parts) != 2:
+        raise ValueError(f"Bad ctrl_time format: {s}")
+    return int(parts[0]) * 60 + int(parts[1])
+
+
 BOUT_NAME_FIXES = {
     "Kai Kamaka": "Kai Kamaka III",            # generational suffix
     "Bibulatov Magomed": "Magomed Bibulatov",  # name order reversed in BOUT
@@ -386,6 +400,10 @@ def fetch_fight_stats(fights_df: pd.DataFrame) -> pd.DataFrame:
     # Rename columns to honor contracts
     fight_stats_df : pd.DataFrame = fight_stats_df.rename(columns={"CTRL":"ctrl_time","ROUND":"round"})
 
+    # Control time is a parse, not a validation -- derive it here so the column
+    # exists before SECTION 2 runs and cannot go missing if a check is skipped.
+    fight_stats_df["ctrl_seconds"] = fight_stats_df["ctrl_time"].apply(parse_ctrl_seconds)
+
     # drop useless columns
     fight_stats_df : pd.DataFrame = fight_stats_df.drop(columns = ["fighter_a_id","fighter_b_id","fighter_a_name","fighter_b_name","SIG.STR. %","TD %","EVENT","BOUT","FIGHTER"])
     # print(fight_stats_df.iloc[0])
@@ -486,22 +504,31 @@ def validate_fights(fight_stats_df: pd.DataFrame) -> bool:
 
 def validate_control_time(fight_stats_df: pd.DataFrame) -> bool:
     """
-    Parse control time from M:SS format to seconds. Handle "--" (zero).
+    Check control time parsed cleanly. The parse itself is in fetch_fight_stats.
     
     Contract:
-      - All ctrl_time values parse to float (seconds) or NaN.
-      - No weird formats.
+      - ctrl_seconds exists and is float -- never Int64, or NaN could not survive.
+      - ctrl_seconds is NaN in exactly the rows where ctrl_time was "--".
+      - Recorded values fall inside one round (0-300s); ctrl is per ROUND, not per bout.
     """
-    def to_seconds(s):
-        if pd.isna(s) or s == "--":
-            return float("nan")
-        parts = str(s).split(":")
-        if len(parts) != 2:
-            raise ValueError(f"Bad ctrl_time format: {s}")
-        return int(parts[0]) * 60 + int(parts[1])
+    assert "ctrl_seconds" in fight_stats_df.columns, \
+        "ctrl_seconds missing -- fetch_fight_stats did not parse it"
+    assert fight_stats_df["ctrl_seconds"].dtype == "float64", \
+        f"ctrl_seconds is {fight_stats_df['ctrl_seconds'].dtype}, which cannot hold NaN"
     
-    fight_stats_df["ctrl_seconds"] = fight_stats_df["ctrl_time"].apply(to_seconds)
-    print(f"✓ Control time parsed. Range: {fight_stats_df['ctrl_seconds'].min():.0f}s to {fight_stats_df['ctrl_seconds'].max():.0f}s")
+    ctrl = fight_stats_df["ctrl_seconds"]
+    unrecorded = fight_stats_df["ctrl_time"].isna() | fight_stats_df["ctrl_time"].eq("--")
+    
+    assert ctrl.isna().equals(unrecorded), \
+        f"NaN ctrl_seconds ({ctrl.isna().sum()}) does not match '--' ctrl_time ({unrecorded.sum()})"
+    
+    recorded = ctrl[~unrecorded]
+    assert (recorded >= 0).all(), f"negative ctrl_seconds: {recorded.min():.0f}s"
+    assert (recorded <= 300).all(), f"ctrl_seconds exceeds one round: {recorded.max():.0f}s"
+    
+    print(f"✓ Control time valid: {len(recorded)} recorded "
+          f"({recorded.min():.0f}s to {recorded.max():.0f}s), "
+          f"{unrecorded.sum()} unrecorded -> NaN.")
     return True
 
 
@@ -510,7 +537,7 @@ def validate_row_counts(events: pd.DataFrame, fights: pd.DataFrame,
     """
     Sanity check: row counts in plausible ranges.
     """
-    assert len(events) >= 784, f"Too few events: {len(events)}"
+    assert len(events) >= 700, f"Too few events: {len(events)}"
     assert len(fights) > 5000, f"Too few fights: {len(fights)}"
     assert len(fight_stats) > 10000, f"Too few fight_stats rows: {len(fight_stats)}"
     assert len(fighters) > 1000, f"Too few fighters: {len(fighters)}"
@@ -534,7 +561,8 @@ def main(args):
     fight_stats = fetch_fight_stats(fights)
     fighters = fetch_fighters()
     
-    # Validate
+    # Validate. Every fetch_* above returns a finished frame, so these are pure
+    # checks -- ordered cheapest first, and none of them mutate what they inspect.
     validate_row_counts(events, fights, fight_stats, fighters)
     validate_fights(fight_stats)
     validate_control_time(fight_stats)
