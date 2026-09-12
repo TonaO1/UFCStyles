@@ -9,6 +9,8 @@ roster:
     # they sit at the min_prior_fights boundary, so it is noise without volume.
   exclude_dwcs: true # No-op: DWCS unreachable from the events index. Kept as tripwire.
   era_start: "2014-01-01" # Volume/quality knee. 71% of bouts, 90.4% reach coverage.
+  bout_count_scope: "in_era" # 5+ counted inside the era => 7,751 rows / 969 fighters,
+    # matching the day-2 memo. "career" gives 8,009 / 1,075.
 
 history:
   min_prior_fights: 3 # Don't produce snapshot unless fighter has 3+ prior bouts.
@@ -22,9 +24,14 @@ features:
     physical: true # Height, reach, weight-class percentiles
     dispersion: true # Within-fighter spread (requires per_bout vectors)
 
+  nan_policy: "error" # Nothing should be NaN on this snapshot. "train_median" to impute.
+
   shrinkage:
     enabled: true
     k: 75 # Empirical Bayes parameter (attempts to shrink over)
+    k_by_evidence: # 75 attempts and 75 prior bouts are not the same evidence.
+      n_prior_minutes: 20.0
+      n_prior_bouts: 5.0
 
 # === LABELING ===
 labels:
@@ -56,8 +63,8 @@ training:
     d_hidden: [32, 16]
     dropout: 0.15
     optimizer: "Adam"
-    lr: 1e-3
-    weight_decay: 1e-4
+    lr: 1.0e-3
+    weight_decay: 1.0e-4
     epochs_max: 200
     batch_size: 64
     early_stopping_patience: 20
@@ -67,8 +74,8 @@ training:
     d_latent: 8
     d_proj: 16
     optimizer: "Adam"
-    lr: 1e-3
-    weight_decay: 1e-4
+    lr: 1.0e-3
+    weight_decay: 1.0e-4
     epochs_max: 200
     batch_size: 64
     early_stopping_patience: 20
@@ -84,6 +91,7 @@ eval:
 # === PATHS (relative to repo root) ===
 paths:
   raw: "data/raw"
+  snapshot_date: "2026-09-01" # Data vintage. Bump deliberately, then re-run everything.
   snapshots: "data/snapshots/v1"
   per_bout: "data/per_bout/v1"
   labels: "data/labels"
