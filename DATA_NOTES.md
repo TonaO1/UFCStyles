@@ -389,6 +389,16 @@ The finisher signal that flurry represents is real but better carried by finish
 rate, average fight duration and knockdowns per minute — measured directly rather
 than through an unstable rate with a tiny denominator.
 
+### `ctrl_share` is style, not quality
+
+Control time is both a choice and a skill, so it could sit in either block. Filed
+under `prop_`: what it mostly measures is the decision to grapple, and `td_acc`
+already covers whether he is good at it.
+
+Merab Dvalishvili is the clearest case — high takedown volume, low control share,
+because he lets opponents up to take them down again. Read as quality that looks
+like failed control; it is a deliberate strategy.
+
 ### Redundancy rejected
 
 `head_att / actions` was considered and dropped: it is exactly

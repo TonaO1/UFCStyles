@@ -32,6 +32,8 @@ features:
     k_by_evidence: # 75 attempts and 75 prior bouts are not the same evidence.
       n_prior_minutes: 20.0
       n_prior_bouts: 5.0
+      n_prior_td_att: 12.0 # median is 18 td attempts; k=75 left every grappling
+        # feature 81% population mean.
 
 # === LABELING ===
 labels:

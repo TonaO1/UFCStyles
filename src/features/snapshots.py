@@ -58,11 +58,19 @@ EVIDENCE_COLS = ["n_prior_bouts", "n_prior_sig_att", "n_prior_td_att",
 
 # First matching rule wins. Override anything here by name in EVIDENCE_OVERRIDES.
 EVIDENCE_RULES = [
-    (("_per_min", "per_min", "per_15", "_pm"), "n_prior_minutes"),
+    (("_per_min", "per_min", "per_15", "_pm", "_pace", "minutes"), "n_prior_minutes"),
     (("head", "body", "leg", "distance", "clinch", "ground", "sig"), "n_prior_sig_att"),
     (("td", "takedown", "sub", "rev", "ctrl", "control", "grappl"), "n_prior_td_att"),
 ]
-EVIDENCE_OVERRIDES: dict = {}
+# strike_share / sig_str_share are strike-volume ratios; nothing in EVIDENCE_RULES
+# matches their names, so they would default to n_prior_bouts.
+EVIDENCE_OVERRIDES: dict = {
+    "prop_strike_share": "n_prior_sig_att",
+}
+
+# Exact counts, not estimates. Shrinking a number you measured toward a
+# population mean corrupts it -- a 20-fight veteran is a 20-fight veteran.
+NOT_SHRINKABLE = {"rate_n_prior_bouts", "rate_career_minutes"}
 
 # k is documented in configs/v1.yaml as "attempts to shrink over" (75). Attempts
 # run in the hundreds, prior bouts 3-46, prior minutes in the tens -- one k across
@@ -71,7 +79,7 @@ EVIDENCE_OVERRIDES: dict = {}
 # defaulted here and overridable via features.shrinkage.k_by_evidence.
 DEFAULT_K_BY_EVIDENCE = {
     "n_prior_sig_att": None,   # None => use features.shrinkage.k verbatim
-    "n_prior_td_att": None,
+    "n_prior_td_att": 12.0,    # td attempts run in the tens, not the hundreds
     "n_prior_minutes": 20.0,
     "n_prior_bouts": 5.0,
 }
@@ -585,6 +593,47 @@ def build_snapshots(fights: pd.DataFrame, fight_stats: pd.DataFrame,
     return snapshots_df
 
 
+# Columns aggregated out of per_bout, by block. ctrl_share is style, not quality:
+# the decision to grapple is what it mostly measures, and td_acc already covers
+# whether he is good at it (DATA_NOTES).
+PROP_FROM_PER_BOUT = [
+    "head_share", "body_share", "leg_share",
+    "distance_share", "clinch_share", "ground_share",
+    "td_share", "sub_share", "strike_share", "sig_str_share", "ctrl_share",
+    "sig_str_pace", "total_off_pace", "td_pace",
+]
+RATE_FROM_PER_BOUT = ["sig_str_acc", "td_acc", "kd_pace", "rev_pace"]
+
+# Career average vs last-3-bouts, for the features that actually evolve. The gap
+# between the two columns is the evolution signal; the model finds it itself.
+RECENT_WINDOW = 3
+RECENT_COLS = ["head_share", "body_share", "leg_share",
+               "distance_share", "clinch_share", "ground_share", "sig_str_pace"]
+
+# Spread across prior bouts. Shares are already on a common [0,1] scale so a raw
+# std is comparable between them; pace is not, so it uses a coefficient of
+# variation instead of being standardised against a population it cannot see.
+DISPERSION_FAMILIES = {
+    "target": ["head_share", "body_share", "leg_share"],
+    "position": ["distance_share", "clinch_share", "ground_share"],
+    "offense": ["td_share", "sub_share", "strike_share"],
+}
+
+
+def _wmean(x: pd.Series, w: pd.Series) -> float:
+    """
+    Duration-weighted mean, skipping rows where either side is missing.
+
+    Masking both sides matters: (x * w).sum() treats a NaN x as 0 while w.sum()
+    still counts that bout's weight, which drags the result toward zero.
+    """
+    m = x.notna() & w.notna()
+    total = w[m].sum()
+    if total <= 0:
+        return float("nan")
+    return float((x[m] * w[m]).sum() / total)
+
+
 def build_feature_row(fighter_id: str, fight_id: str, date: pd.Timestamp,
                       prior_fights: pd.DataFrame, prior_stats: pd.DataFrame,
                       per_bout: pd.DataFrame, weight_class: str,
@@ -621,7 +670,67 @@ def build_feature_row(fighter_id: str, fight_id: str, date: pd.Timestamp,
     Respects config.features.blocks: a disabled block emits none of its keys.
     build_snapshots attaches prior_fight_ids and the n_prior_* counts itself.
     """
-    raise NotImplementedError
+    blocks = config["features"]["blocks"]
+    out = {}
+
+    pb = per_bout.sort_values("date", kind="stable") if "date" in per_bout.columns else per_bout
+    w = pb["duration_seconds"] if "duration_seconds" in pb.columns else pd.Series(dtype=float)
+
+    # --- proportions: what he chooses to do ---------------------------------
+    if blocks.get("proportions"):
+        for col in PROP_FROM_PER_BOUT:
+            out[f"prop_{col}"] = _wmean(pb[col], w) if col in pb.columns else float("nan")
+
+        recent = pb.tail(RECENT_WINDOW)
+        w_recent = recent["duration_seconds"] if len(recent) else pd.Series(dtype=float)
+        for col in RECENT_COLS:
+            out[f"prop_recent_{col}"] = (_wmean(recent[col], w_recent)
+                                         if col in recent.columns and len(recent)
+                                         else float("nan"))
+
+    # --- rates: how well it works -------------------------------------------
+    if blocks.get("rates"):
+        for col in RATE_FROM_PER_BOUT:
+            out[f"rate_{col}"] = _wmean(pb[col], w) if col in pb.columns else float("nan")
+
+        won = prior_fights["won"]
+        out["rate_win_rate"] = float(won.mean()) if won.notna().any() else float("nan")
+
+        method = prior_fights["method"].astype(str)
+        decided = won.notna()
+        finishes = decided & ~method.str.startswith("Decision")
+        out["rate_finish_rate"] = (float(finishes[decided].mean())
+                                   if decided.any() else float("nan"))
+
+        minutes = prior_fights["duration_seconds"].astype(float) / 60.0
+        out["rate_avg_fight_minutes"] = float(minutes.mean()) if len(minutes) else float("nan")
+
+        # Exact counts, not estimates -- see the note in DATA_NOTES about these
+        # being shrunk along with the rest of the block.
+        out["rate_n_prior_bouts"] = float(len(prior_fights))
+        out["rate_career_minutes"] = float(minutes.sum())
+
+    # --- physical: context ---------------------------------------------------
+    if blocks.get("physical"):
+        out["phys_reach_pct"] = percentile_in_wc(
+            fighter.reach_in, percentile_class, "reach_in", phys_ref)
+        out["phys_height_pct"] = percentile_in_wc(
+            fighter.height_in, percentile_class, "height_in", phys_ref)
+
+    # --- dispersion: how much he varies --------------------------------------
+    if blocks.get("dispersion"):
+        for name, cols in DISPERSION_FAMILIES.items():
+            have = [c for c in cols if c in pb.columns]
+            stds = [pb[c].std(ddof=0) for c in have if pb[c].notna().sum() >= 2]
+            out[f"disp_{name}"] = float(np.mean(stds)) if stds else float("nan")
+
+        pace = pb["sig_str_pace"] if "sig_str_pace" in pb.columns else pd.Series(dtype=float)
+        mu = pace.mean()
+        out["disp_pace_cv"] = (float(pace.std(ddof=0) / mu)
+                               if pace.notna().sum() >= 2 and mu and mu > 0
+                               else float("nan"))
+
+    return out
 
 
 # ============================================================================
@@ -663,7 +772,8 @@ def apply_shrinkage(snapshots_df: pd.DataFrame, feature_cols: list,
     k_by_evidence = {**DEFAULT_K_BY_EVIDENCE, **(shrink_cfg.get("k_by_evidence") or {})}
 
     prefixes = tuple(BLOCK_PREFIXES[b] for b in SHRINKABLE_BLOCKS)
-    targets = [c for c in feature_cols if c.startswith(prefixes)]
+    targets = [c for c in feature_cols
+               if c.startswith(prefixes) and c not in NOT_SHRINKABLE]
     skipped = [c for c in feature_cols if c not in targets]
 
     out = snapshots_df.copy()
@@ -680,7 +790,13 @@ def apply_shrinkage(snapshots_df: pd.DataFrame, feature_cols: list,
         n = out[evidence_col].fillna(0.0).astype(float)
         weight = n / (n + k)
 
-        out[col] = weight * out[col] + (1.0 - weight) * population_mean
+        observed = out[col]
+        shrunk = weight * observed + (1.0 - weight) * population_mean
+        # n == 0 makes the formula's limit the population mean, but NaN * 0 is
+        # NaN, so substitute it. This is what carries rate_td_acc for the 35% of
+        # fighters who never shot a takedown. A NaN WITH evidence is a bug and
+        # is left alone so nan_policy catches it.
+        out[col] = shrunk.where(~(observed.isna() & (n <= 0)), population_mean)
         report.append((col, evidence_col, k, float(weight.median())))
 
     print(f"Shrinkage: {len(targets)} columns shrunk, {len(skipped)} left alone "
