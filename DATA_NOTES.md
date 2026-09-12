@@ -133,6 +133,24 @@ carrying copies of the first-listed fight's stats; the second fight's actual sta
 **Accepted as-is:** pre-era 1997 data, structurally unreachable from the 2014+ scope.
 If it ever matters, the fix is disambiguation by source row order, not the join.
 
+### 199 bouts have no weight class — 73 of them in-era
+
+`WEIGHTCLASS` carries `Open Weight Bout` (101) and `Catch Weight Bout` (83) plus the 1994–96
+tournament/superfight titles (15). The adapter maps all of them to `NaN` weight_class, and
+`weight_lbs` is `NaN` for all 199 too, so there is no fallback inside the row.
+
+**Easy to miss:** `fights.weight_class.value_counts()` drops NaN, so the column reads as a clean
+12-value categorical. It isn't. Count with `dropna=False`.
+
+**Consequence:** "percentile within weight class" has no reference population for those bouts —
+**92 snapshot rows** at the 2014 / 5+ / extend config. Catch-weight bouts are still real UFC
+bouts and recent (one as late as 2026-08-15), so dropping them is not free.
+
+**Resolved in `snapshots.py`:** `build_snapshots` carries a `percentile_class` alongside
+`weight_class` — the bout's own division when it has one, otherwise the fighter's most recent
+*classified* prior bout. Priors only, so the fallback cannot leak. `weight_class` keeps the honest
+`NaN` for meta; `percentile_class` is what the physical block looks percentiles up in.
+
 ### Fighter identity — no clean solution
 
 `fight_stats` identifies fighters by **name string only**, no URL. Mapping 2,723 distinct
@@ -297,3 +315,97 @@ Before running, check locally whether anything is actually missing — 0 incompl
 pandas 3.0.5 / numpy 2.5.2. The library relies on `pd.concat` with empty frames,
 `df.loc[len(df)] = list`, and `merge(how='inner')` with no explicit `on`. First place to look
 if a refresh errors.
+
+---
+
+## Feature decisions (Day 3, 2026-09-12)
+
+Recorded here rather than in `snapshots.py` docstrings. Nothing in the code
+enforces any of these.
+
+### Shares are built from ATTEMPTED, not landed
+
+Attempts are what the fighter chose to throw. Landed is attempts filtered through
+the opponent's defence, so a landed-share puts the opponent's skill inside this
+fighter's style vector. Concretely: 60 of 100 thrown at the head, 20 landed —
+attempted reads 0.60, landed reads 0.42, and the gap is the other guy's guard.
+
+Attempts are not clean either. A fighter who stops throwing leg kicks because
+they keep getting checked has been influenced by the opponent too — but that is
+his decision, and adapting to a matchup is style. The `disp_` block measures how
+much he does it.
+
+Landed is not discarded; accuracy (`landed / attempted`) sits in the rate block
+where it is labelled as quality and can be switched off. Whether it also carries
+style signal gets settled on days 6–7 by training with and without it, not by
+blending it in here at a chosen weight.
+
+Verified: both partitions sum exactly (max error 0.0) on the landed columns *and*
+the attempted columns across all 17,622 fighter-bouts, so
+`assert_partitions_sum_to_one` passes either way and does not catch a wrong choice.
+
+### Zero-denominator rows get NaN, not 0.0
+
+`0.0` claims "threw nothing at the head proportionally", which is a statement
+about style. `NaN` says "no evidence". A `mean()` skips NaN and is dragged down
+by 0.0.
+
+Counts differ per family and were verified, not assumed:
+
+| denominator | undefined rows |
+|---|---|
+| `sig_str_att` (the two strike partitions) | 97 |
+| `tot_str_att + td_att + sub_att` (offense partition) | 29 |
+| `tot_str_att` (`sig_str_share`) | 64 |
+| `td_att` (`td_acc`) | 6,135 |
+| `ctrl_seconds` unrecorded | 362 |
+
+Under LANDED the strike partitions would be undefined on 376 rows instead of 97,
+and those 376 are the one-sided performances — dropping them would bias the
+sample by quality.
+
+`td_acc` missing on 35% of rows is the one to watch: a fighter who never shoots
+has no takedown accuracy, and `nan_policy: "error"` will refuse to build the
+snapshot once it is aggregated.
+
+### Pace is measured two ways
+
+`sig_str_pace` (significant strikes attempted per minute) and `total_off_pace`
+(`tot_str_att + td_att + sub_att` per minute). `tot_str_att` is a strict superset
+of `sig_str_att` — 81% of bouts carry non-significant strikes, median 10, max 520
+— so the gap between the two columns separates ground-and-pound volume from clean
+striking without either being named.
+
+Per-minute rather than per-second is a readability choice only; `StandardScaler`
+erases the constant.
+
+**Known artefact:** 270 bouts are under 30 seconds, and a 7-second finish with 10
+strikes reads as 85.7/min. The per-bout number is correct; the problem is
+aggregation, where a plain `mean()` lets that bout outweigh a 25-minute decision.
+`sum(attempts) / sum(minutes)` is the duration-weighted alternative. Decide in
+`build_feature_row`.
+
+The finisher signal that flurry represents is real but better carried by finish
+rate, average fight duration and knockdowns per minute — measured directly rather
+than through an unstable rate with a tiny denominator.
+
+### `ctrl_share` is style, not quality
+
+Control time is both a choice and a skill, so it could sit in either block. Filed
+under `prop_`: what it mostly measures is the decision to grapple, and `td_acc`
+already covers whether he is good at it.
+
+Merab Dvalishvili is the clearest case — high takedown volume, low control share,
+because he lets opponents up to take them down again. Read as quality that looks
+like failed control; it is a deliberate strategy.
+
+### Redundancy rejected
+
+`head_att / actions` was considered and dropped: it is exactly
+`head_share × strike_share`, both of which already exist. At 7,751 snapshot rows
+and ~25 features, a column that is a product of two others costs degrees of
+freedom for no signal.
+
+The three offense shares (`td_`, `sub_`, `strike_`) sum to 1 and so carry two
+degrees of freedom in three columns. Kept anyway — readable, and one redundant
+dimension is cheap.
