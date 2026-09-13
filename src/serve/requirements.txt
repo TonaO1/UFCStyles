@@ -1,0 +1,2 @@
+# Lambda image only. boto3 ships with the Lambda Python base image.
+numpy>=2.0,<3
