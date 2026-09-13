@@ -6,32 +6,36 @@ Provably separate style from quality in fighter statistics using leak-free snaps
 
 **"Is this measuring style or is it measuring good?"** Every design decision must answer this.
 
+## Results
+
+See [RESULTS.md](RESULTS.md). The short version:
+- No embedding predicts fights better than a strength-only model (AUC 0.651).
+- A contrastive model trained on style features alone recovers martial-arts background at 0.290 against chance 0.20.
+
 ## Quick Start
 
 ```bash
-# 1. Configure
-cp configs/v1.yaml.template configs/v1.yaml
-# Edit: era_start, min_prior, feature selection
-
-# 2. Scrape + scope
+# 1. Scrape + scope (configs/v1.yaml holds every decision)
 python src/scrape/fetch_ufcstats.py
-python src/analysis/scope_count.py  # decides era cutoff
+python src/analysis/scope_count.py
 
-# 3. Features + splits
-python src/features/build_snapshots.py
-python src/features/split.py
+# 2. Leak-free snapshots, splits, scaler
+python src/features/snapshots.py
 
-# 4. Labels + eval harness
-# Label background.csv (200 fighters) by hand
-python src/eval/harness.py --baseline pca --name pca_8
+# 3. Background labels (Wikipedia) + eval harness with random/raw/PCA baselines
+python src/labeling/fetch_wiki_background.py
+python src/eval/harness.py --baseline all
 
-# 5. Models
+# 4. Models: 4 feature-block versions each, all run through the harness
 python src/models/autoencoder.py
 python src/models/contrastive.py
 
-# 6. Serve
+# 5. Serving bundle (NumPy weights + fighter records)
+python src/serve/export.py --model contrastive_style_8
+
+# 6. Deploy (Terraform + Docker not finished yet), then fill the table
 terraform -chdir=infra apply
-python src/serve/handler.py
+python src/serve/load_dynamodb.py --table ufc-fighter-embeddings-dev
 ```
 
 ## Data Flow
@@ -49,23 +53,21 @@ snapshots/v1/
   ├─ test.parquet
 
 per_bout/v1/
-  └─ fighters_bouts.parquet
+  └─ per_bout_vectors.parquet
 
-eval/
-  ├─ pca_8.json
-  ├─ ae_8.json
-  └─ contrastive_8.json
+eval/                       one JSON per model
+  ├─ random_8.json, raw_36.json, pca_{variant}_8.json
+  ├─ ae_{variant}_8.json
+  └─ contrastive_{variant}_8.json
 
-models/
-  ├─ ae_v1/
-  │  ├─ encoder_weights.npz
-  │  ├─ scaler.pkl
-  │  └─ config.yaml
-  └─ contrastive_v1/
-     ├─ encoder_weights.npz
-     ├─ scaler.pkl
-     └─ config.yaml
+models/{name}/
+  ├─ encoder.npz            W0, b0, ... + scaler for its columns
+  ├─ model.pt
+  ├─ run.json               config, loss history, diagnostics
+  └─ serving/               fighters.json, fight_model.npz, encoder.npz
 ```
+
+`{variant}` is `style`, `style_quality`, `style_physical_dispersion` or `all`.
 
 ## Key Concepts
 
@@ -177,9 +179,10 @@ Runs four checks:
 1. `configs/v1.yaml` — all tunable parameters
 2. `src/features/snapshots.py` — leak-free builder
 3. `src/eval/harness.py` — the source of truth
-4. `src/models/autoencoder.py` — first model
+4. `src/models/autoencoder.py` — first model (shared training code in `common.py`)
 5. `src/models/contrastive.py` — second model
-6. `src/serve/handler.py` — inference contract
+6. `src/serve/inference.py`, `export.py` — NumPy inference and the serving bundle
+7. `RESULTS.md` — what the numbers say
 
 ---
 

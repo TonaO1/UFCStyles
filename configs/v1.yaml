@@ -59,30 +59,31 @@ training:
   device: "cpu" # Switch to "cuda" for GPU
   seed: 42
 
-  autoencoder:
-    d_in: 28 # Will be set from actual feature count
+  autoencoder: # input size comes from the feature block being trained
     d_latent: 8
     d_hidden: [32, 16]
     dropout: 0.15
     optimizer: "Adam"
     lr: 1.0e-3
     weight_decay: 1.0e-4
-    epochs_max: 200
+    epochs_max: 500
     batch_size: 64
     early_stopping_patience: 20
 
   contrastive:
-    d_in: 28
     d_latent: 8
+    d_hidden: [32, 16]
     d_proj: 16
+    dropout: 0.15
     optimizer: "Adam"
     lr: 1.0e-3
     weight_decay: 1.0e-4
-    epochs_max: 200
+    epochs_max: 500
     batch_size: 64
     early_stopping_patience: 20
     nt_xent_tau: 0.1
-    pair_strategy: "gapped" # "gapped" | "round_subsample" | "feature_dropout"
+    pair_strategy: "gapped" # only "gapped" is implemented
+    gap: 5 # snapshots apart; 1,677 train pairs / 531 val pairs
 
 # === EVALUATION ===
 eval:
