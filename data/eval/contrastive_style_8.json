@@ -1,0 +1,84 @@
+{
+  "model": "contrastive_style_8",
+  "embedding_dim": 8,
+  "n_rows": 7751,
+  "snapshot_date": "2026-09-01",
+  "probes": {
+    "background": {
+      "balanced_accuracy": 0.28978387653489274,
+      "balanced_accuracy_euclidean": 0.3114405134940991,
+      "chance": 0.2,
+      "n_rows": 1365,
+      "n_fighters": 335
+    },
+    "background_no_hybrid": {
+      "balanced_accuracy": 0.38770897319508957,
+      "balanced_accuracy_euclidean": 0.40370779648568555,
+      "chance": 0.25,
+      "n_rows": 1282,
+      "n_fighters": 312
+    },
+    "stance": {
+      "balanced_accuracy": 0.37315392301477684,
+      "balanced_accuracy_euclidean": 0.3730347489610714,
+      "chance": 0.3333333333333333,
+      "n_rows": 2224,
+      "n_fighters": 567
+    },
+    "weight_class": {
+      "balanced_accuracy": 0.0980946633135122,
+      "balanced_accuracy_euclidean": 0.10191692185574251,
+      "chance": 0.08333333333333333,
+      "n_rows": 2198,
+      "n_fighters": 567
+    }
+  },
+  "fight_model": {
+    "C": 0.003,
+    "C_strength": 0.003,
+    "pair_scale": 0.0
+  },
+  "matchup": {
+    "auc_full": 0.6511556104446012,
+    "auc_strength_only": 0.6511556104446012,
+    "auc_raw_stats": 0.6476270289343684,
+    "gap_vs_strength": 0.0,
+    "gap_vs_raw": 0.003528581510232831,
+    "gap_vs_strength_lo": 0.0,
+    "gap_vs_strength_hi": 0.0,
+    "gap_vs_raw_lo": -0.023670350100966124,
+    "gap_vs_raw_hi": 0.031615415565976454,
+    "n_test_fights": 852
+  },
+  "cycles": {
+    "n_fighters": 567,
+    "n_triples": 30220155,
+    "n_cycles": 0,
+    "cycle_rate": 0.0,
+    "n_confident_cycles": 0,
+    "confident_cycle_rate": 0.0,
+    "confident_margin": 0.05
+  },
+  "dispersion": {
+    "disp_offense.cycles_r": 0.0,
+    "disp_offense.cycles_p": 1.0,
+    "disp_offense.cycle_share_r": 0.0,
+    "disp_offense.cycle_share_p": 1.0,
+    "disp_pace_cv.cycles_r": 0.0,
+    "disp_pace_cv.cycles_p": 1.0,
+    "disp_pace_cv.cycle_share_r": 0.0,
+    "disp_pace_cv.cycle_share_p": 1.0,
+    "disp_position.cycles_r": 0.0,
+    "disp_position.cycles_p": 1.0,
+    "disp_position.cycle_share_r": 0.0,
+    "disp_position.cycle_share_p": 1.0,
+    "disp_target.cycles_r": 0.0,
+    "disp_target.cycles_p": 1.0,
+    "disp_target.cycle_share_r": 0.0,
+    "disp_target.cycle_share_p": 1.0,
+    "disp_mean.cycles_r": 0.0,
+    "disp_mean.cycles_p": 1.0,
+    "disp_mean.cycle_share_r": 0.0,
+    "disp_mean.cycle_share_p": 1.0
+  }
+}
