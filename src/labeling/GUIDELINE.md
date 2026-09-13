@@ -2,6 +2,18 @@
 
 **Write this BEFORE you label anything.** One page per probe, with decision rules and examples.
 
+## How v1 labels were made
+
+Labels in `data/labels/background.csv` come only from each fighter's Wikipedia intro and
+background/early-life text (`data/labels/wiki_background.csv`), never from watching fights.
+The label is the fighter's *foundation*, not their current style.
+
+- Pick the strongest documented credential (titles, pro record, years); ties go to the earliest.
+- Wrestling, sambo, folk wrestling → Wrestler. Judo and BJJ → BJJ / Grappler.
+  Karate, taekwondo, kung fu, sanda, kickboxing, Muay Thai → Kickboxing / Muay Thai.
+- Two comparable credentials, or army hand-to-hand combat → Hybrid.
+- No page, no martial art named, or started directly in MMA → Unclear.
+
 ## Categories
 
 ### 1. Wrestler
@@ -13,11 +25,11 @@
 - Colby Covington: D1 wrestler, bases entire game on takedown + top control
 - Tyron Woodley: D1 wrestler, uses wrestling to control dominant strikers
 - Ben Askren: Took down elite strikers repeatedly via wrestling
+- Khabib Nurmagomedov: Sambo/freestyle wrestling base, takedown + top control
 
 **Non-examples:**
 
 - Jon Jones (strong wrestling but primarily striker / grappler hybrid)
-- Khabib (wrestling base but overwhelmingly grapples on ground)
 
 ---
 
@@ -27,8 +39,8 @@
 
 **Examples:**
 
-- Anderson Silva: Olympic boxing, bases combinations around punches
-- Anthony Smith: Heavy professional boxing background
+- Holly Holm: Professional boxing world champion before MMA
+- Petr Yan: Amateur boxing base, builds offense around punches
 
 **Non-examples:**
 
@@ -43,13 +55,14 @@
 
 **Examples:**
 
-- Joanna Jędrzejczyk: Professional MMA striker with Dutch kickboxing background
+- Joanna Jędrzejczyk: Muay Thai world champion before MMA
 - Mirko Cro Cop: Kickboxing base, elite kick game
-- Overeem: Heavyweight striker/clincher with Dutch MT background
+- Overeem: Heavyweight striker/clincher with Dutch kickboxing background
+- Anthony Pettis: Taekwondo base, kick-heavy (closest fit is this category)
 
 **Non-examples:**
 
-- Anthony Pettis (striker but more boxing-based)
+- Holly Holm (kicks a lot, but credentials are boxing)
 - Mike Perry (athlete who learned striking, not credentials)
 
 ---
@@ -66,7 +79,7 @@
 
 **Non-examples:**
 
-- Khabib (grapples, but not BJJ-based; submission rate low)
+- Khabib (grapples, but wrestling-based; label Wrestler)
 - Robert Whittaker (can grapple, but not the primary)
 
 ---
@@ -84,7 +97,7 @@
 **Non-examples:**
 
 - Khabib (70% wrestling, 30% other = not hybrid)
-- Anderson Silva (70% boxing, 30% other = not hybrid)
+- Anderson Silva (Muay Thai-primary = not hybrid)
 
 ---
 
@@ -126,9 +139,12 @@ After labeling ~50 fighters, re-label 20 at random **one week later** without lo
 Compute Cohen's kappa:
 
 ```
-agreements = sum(label_time1 == label_time2)
-kappa = (agreements / n) - expected_by_chance
+p_observed = mean(label_time1 == label_time2)
+p_chance   = sum over categories c of share_time1(c) * share_time2(c)
+kappa      = (p_observed - p_chance) / (1 - p_chance)
 ```
+
+Or `sklearn.metrics.cohen_kappa_score(label_time1, label_time2)`.
 
 Target: κ > 0.60. If κ < 0.50, revise the guideline and re-label all 20.
 
