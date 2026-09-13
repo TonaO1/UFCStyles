@@ -1,0 +1,45 @@
+{
+  "model": "pca_style_physical_dispersion_8",
+  "embedding_dim": 8,
+  "n_rows": 7751,
+  "snapshot_date": "2026-09-01",
+  "probes": {
+    "background": {
+      "balanced_accuracy": 0.23825748028844798,
+      "balanced_accuracy_euclidean": 0.24063436624681858,
+      "chance": 0.2,
+      "n_rows": 1365,
+      "n_fighters": 335
+    },
+    "background_no_hybrid": {
+      "balanced_accuracy": 0.31540751014158075,
+      "balanced_accuracy_euclidean": 0.3349255766240229,
+      "chance": 0.25,
+      "n_rows": 1282,
+      "n_fighters": 312
+    },
+    "stance": {
+      "balanced_accuracy": 0.34045087963797727,
+      "balanced_accuracy_euclidean": 0.3533095801976982,
+      "chance": 0.3333333333333333,
+      "n_rows": 2224,
+      "n_fighters": 567
+    },
+    "weight_class": {
+      "balanced_accuracy": 0.08010114024871813,
+      "balanced_accuracy_euclidean": 0.07797376475774521,
+      "chance": 0.08333333333333333,
+      "n_rows": 2198,
+      "n_fighters": 567
+    }
+  },
+  "matchup": {
+    "pending": "fit_fight_model"
+  },
+  "cycles": {
+    "pending": "fit_fight_model"
+  },
+  "dispersion": {
+    "pending": "fit_fight_model"
+  }
+}

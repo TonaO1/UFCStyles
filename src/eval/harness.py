@@ -16,7 +16,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
+from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.neighbors import KNeighborsClassifier
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.features.snapshots import load_config
@@ -63,7 +65,23 @@ def check_probe_recovery(Z: np.ndarray, y: np.ndarray, groups: np.ndarray,
     folds: list of (train_idx, test_idx); no fighter is ever on both sides.
     Must return a dict with "balanced_accuracy" (the trust check reads it).
     """
-    raise NotImplementedError
+    output = dict()
+    for metric in ["cosine", "euclidean"]: # 2 ways for comparing embeddings
+        guesses = np.empty(len(y), dtype=object)
+
+        for voter_rows, guess_rows in folds:
+            voter = KNeighborsClassifier(n_neighbors=k, metric=metric)
+            voter.fit(Z[voter_rows], y[voter_rows]) # stores voters embeddings and voter's actual labels
+            guesses[guess_rows] = voter.predict(Z[guess_rows]) # use k closest neighbors for each guess row to predict guess row label
+
+        score = balanced_accuracy_score(y,guesses)
+        if metric == "cosine":
+            output["balanced_accuracy"] = score
+        else:
+            output["balanced_accuracy_euclidean"] = score
+
+    output["chance"] = 1 / len(np.unique(y))   # 1 / how many different labels are in y
+    return output
 
 
 def fit_fight_model(X: np.ndarray, Z: np.ndarray, fit_pairs: dict, blocks: dict):

@@ -1,0 +1,45 @@
+{
+  "model": "raw_36",
+  "embedding_dim": 36,
+  "n_rows": 7751,
+  "snapshot_date": "2026-09-01",
+  "probes": {
+    "background": {
+      "balanced_accuracy": 0.26598180241234126,
+      "balanced_accuracy_euclidean": 0.2599466872261838,
+      "chance": 0.2,
+      "n_rows": 1365,
+      "n_fighters": 335
+    },
+    "background_no_hybrid": {
+      "balanced_accuracy": 0.3504440587947584,
+      "balanced_accuracy_euclidean": 0.3516715591905475,
+      "chance": 0.25,
+      "n_rows": 1282,
+      "n_fighters": 312
+    },
+    "stance": {
+      "balanced_accuracy": 0.34296334452049165,
+      "balanced_accuracy_euclidean": 0.3536665237227427,
+      "chance": 0.3333333333333333,
+      "n_rows": 2224,
+      "n_fighters": 567
+    },
+    "weight_class": {
+      "balanced_accuracy": 0.09936909342098316,
+      "balanced_accuracy_euclidean": 0.11008276118776099,
+      "chance": 0.08333333333333333,
+      "n_rows": 2198,
+      "n_fighters": 567
+    }
+  },
+  "matchup": {
+    "pending": "fit_fight_model"
+  },
+  "cycles": {
+    "pending": "fit_fight_model"
+  },
+  "dispersion": {
+    "pending": "fit_fight_model"
+  }
+}
