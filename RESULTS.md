@@ -126,4 +126,10 @@ Serving code:
 - `src/serve/handler.py`: the `/similar` and `/matchup` routes. Tested locally against a fake table.
 - `src/serve/load_dynamodb.py`: fills the table.
 
-Not done yet: `Dockerfile`, `infra/main.tf` (Lambda, API Gateway, ECR) and the actual deploy.
+## Deployment
+
+This was deployed on AWS, following "Deploy it yourself" in the [README](README.md):
+- **Serving:** NumPy-only inference, AWS Lambda (container image), Amazon API Gateway (HTTP API), Amazon DynamoDB, Amazon ECR, CloudWatch Logs, IAM
+- **Infrastructure:** Terraform, Docker
+
+It has since been torn down with `terraform destroy`, so there is no live endpoint.
