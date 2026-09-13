@@ -1,0 +1,84 @@
+{
+  "model": "ae_style_physical_dispersion_8",
+  "embedding_dim": 8,
+  "n_rows": 7751,
+  "snapshot_date": "2026-09-01",
+  "probes": {
+    "background": {
+      "balanced_accuracy": 0.25569487077570685,
+      "balanced_accuracy_euclidean": 0.25488156846588345,
+      "chance": 0.2,
+      "n_rows": 1365,
+      "n_fighters": 335
+    },
+    "background_no_hybrid": {
+      "balanced_accuracy": 0.3197448831508889,
+      "balanced_accuracy_euclidean": 0.29721226188818206,
+      "chance": 0.25,
+      "n_rows": 1282,
+      "n_fighters": 312
+    },
+    "stance": {
+      "balanced_accuracy": 0.34121804907944536,
+      "balanced_accuracy_euclidean": 0.33564276564164236,
+      "chance": 0.3333333333333333,
+      "n_rows": 2224,
+      "n_fighters": 567
+    },
+    "weight_class": {
+      "balanced_accuracy": 0.08294044759315466,
+      "balanced_accuracy_euclidean": 0.07753128489077754,
+      "chance": 0.08333333333333333,
+      "n_rows": 2198,
+      "n_fighters": 567
+    }
+  },
+  "fight_model": {
+    "C": 0.003,
+    "C_strength": 0.003,
+    "pair_scale": 0.3
+  },
+  "matchup": {
+    "auc_full": 0.6431942484121383,
+    "auc_strength_only": 0.6511556104446012,
+    "auc_raw_stats": 0.6476270289343684,
+    "gap_vs_strength": -0.007961362032462893,
+    "gap_vs_raw": -0.004432780522230062,
+    "gap_vs_strength_lo": -0.01681118010452801,
+    "gap_vs_strength_hi": 0.0013762114908192399,
+    "gap_vs_raw_lo": -0.031329646673678324,
+    "gap_vs_raw_hi": 0.024427921383341305,
+    "n_test_fights": 852
+  },
+  "cycles": {
+    "n_fighters": 567,
+    "n_triples": 30220155,
+    "n_cycles": 229964,
+    "cycle_rate": 0.007609645505347893,
+    "n_confident_cycles": 2741,
+    "confident_cycle_rate": 9.07010569601645e-05,
+    "confident_margin": 0.05
+  },
+  "dispersion": {
+    "disp_offense.cycles_r": 0.09847254626956035,
+    "disp_offense.cycles_p": 0.01901010140820074,
+    "disp_offense.cycle_share_r": 0.12765815208230033,
+    "disp_offense.cycle_share_p": 0.0023227327059403206,
+    "disp_pace_cv.cycles_r": 0.0068942071001103404,
+    "disp_pace_cv.cycles_p": 0.8698863209071537,
+    "disp_pace_cv.cycle_share_r": -0.007970213770027141,
+    "disp_pace_cv.cycle_share_p": 0.8498036054052689,
+    "disp_position.cycles_r": 0.10829158503359328,
+    "disp_position.cycles_p": 0.009865292494613756,
+    "disp_position.cycle_share_r": 0.14047394793564996,
+    "disp_position.cycle_share_p": 0.0007959588975812286,
+    "disp_target.cycles_r": 0.11177410594740934,
+    "disp_target.cycles_p": 0.007721359512787665,
+    "disp_target.cycle_share_r": 0.14397683944224238,
+    "disp_target.cycle_share_p": 0.000584496056725241,
+    "disp_mean.cycles_r": 0.13848080608482174,
+    "disp_mean.cycles_p": 0.0009459170879113246,
+    "disp_mean.cycle_share_r": 0.16828223904811937,
+    "disp_mean.cycle_share_p": 5.6491325485582305e-05
+  }
+}
