@@ -33,13 +33,52 @@
       "n_fighters": 567
     }
   },
+  "fight_model": {
+    "C": 0.003,
+    "C_strength": 0.003,
+    "pair_scale": 0.3
+  },
   "matchup": {
-    "pending": "fit_fight_model"
+    "auc_full": 0.6484705804516584,
+    "auc_strength_only": 0.6511556104446012,
+    "auc_raw_stats": 0.6476270289343684,
+    "gap_vs_strength": -0.0026850299929428445,
+    "gap_vs_raw": 0.0008435515172899866,
+    "gap_vs_strength_lo": -0.008279309206833455,
+    "gap_vs_strength_hi": 0.0029193403722367274,
+    "gap_vs_raw_lo": -0.02717930742141652,
+    "gap_vs_raw_hi": 0.02959422262082523,
+    "n_test_fights": 852
   },
   "cycles": {
-    "pending": "fit_fight_model"
+    "n_fighters": 567,
+    "n_triples": 30220155,
+    "n_cycles": 141445,
+    "cycle_rate": 0.004680496619998585,
+    "n_confident_cycles": 0,
+    "confident_cycle_rate": 0.0,
+    "confident_margin": 0.05
   },
   "dispersion": {
-    "pending": "fit_fight_model"
+    "disp_offense.cycles_r": -0.019240705425123652,
+    "disp_offense.cycles_p": 0.6475371085857365,
+    "disp_offense.cycle_share_r": 0.026492150392138387,
+    "disp_offense.cycle_share_p": 0.5289935271683451,
+    "disp_pace_cv.cycles_r": -0.013090177881832032,
+    "disp_pace_cv.cycles_p": 0.7557811174692771,
+    "disp_pace_cv.cycle_share_r": 0.00953170302839492,
+    "disp_pace_cv.cycle_share_p": 0.8208351810819624,
+    "disp_position.cycles_r": -0.022764816915056534,
+    "disp_position.cycles_p": 0.5885460108401211,
+    "disp_position.cycle_share_r": 0.0012711724235997203,
+    "disp_position.cycle_share_p": 0.9759058983949404,
+    "disp_target.cycles_r": 0.006736510660690096,
+    "disp_target.cycles_p": 0.872836952874471,
+    "disp_target.cycle_share_r": 0.008512401740386104,
+    "disp_target.cycle_share_p": 0.8397200090355932,
+    "disp_mean.cycles_r": -0.005230811211056276,
+    "disp_mean.cycles_p": 0.9010929408329107,
+    "disp_mean.cycle_share_r": 0.019718363173359076,
+    "disp_mean.cycle_share_p": 0.6393996499092315
   }
 }

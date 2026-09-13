@@ -33,13 +33,52 @@
       "n_fighters": 567
     }
   },
+  "fight_model": {
+    "C": 0.003,
+    "C_strength": 0.003,
+    "pair_scale": 1.0
+  },
   "matchup": {
-    "pending": "fit_fight_model"
+    "auc_full": 0.6193156757233592,
+    "auc_strength_only": 0.6511556104446012,
+    "auc_raw_stats": 0.6476270289343684,
+    "gap_vs_strength": -0.031839934721242025,
+    "gap_vs_raw": -0.028311353211009194,
+    "gap_vs_strength_lo": -0.05802541396414941,
+    "gap_vs_strength_hi": -0.006285976498742408,
+    "gap_vs_raw_lo": -0.0648025889075697,
+    "gap_vs_raw_hi": 0.004809726956083318,
+    "n_test_fights": 852
   },
   "cycles": {
-    "pending": "fit_fight_model"
+    "n_fighters": 567,
+    "n_triples": 30220155,
+    "n_cycles": 2464967,
+    "cycle_rate": 0.08156700939047687,
+    "n_confident_cycles": 196088,
+    "confident_cycle_rate": 0.0064886497107642235,
+    "confident_margin": 0.05
   },
   "dispersion": {
-    "pending": "fit_fight_model"
+    "disp_offense.cycles_r": 0.08355381379263781,
+    "disp_offense.cycles_p": 0.04673970347379882,
+    "disp_offense.cycle_share_r": 0.1873836957069854,
+    "disp_offense.cycle_share_p": 7.057809138330864e-06,
+    "disp_pace_cv.cycles_r": 0.10893400461007804,
+    "disp_pace_cv.cycles_p": 0.009433928711339091,
+    "disp_pace_cv.cycle_share_r": 0.1529126993343387,
+    "disp_pace_cv.cycle_share_p": 0.0002575838514839288,
+    "disp_position.cycles_r": 0.12918652451878498,
+    "disp_position.cycles_p": 0.002054108111216929,
+    "disp_position.cycle_share_r": 0.17893119744510774,
+    "disp_position.cycle_share_p": 1.8200059528155092e-05,
+    "disp_target.cycles_r": 0.09503747858687991,
+    "disp_target.cycles_p": 0.02362704452485802,
+    "disp_target.cycle_share_r": 0.06630563382914947,
+    "disp_target.cycle_share_p": 0.11477122903540236,
+    "disp_mean.cycles_r": 0.16248167067193475,
+    "disp_mean.cycles_p": 0.00010178762769652223,
+    "disp_mean.cycle_share_r": 0.20952465216636817,
+    "disp_mean.cycle_share_p": 4.800389138180381e-07
   }
 }

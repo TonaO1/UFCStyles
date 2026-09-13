@@ -1,9 +1,8 @@
 """
 Evaluation harness: one fixed test every embedding takes.
 
-Plumbing (loading, row alignment, fight pairs, fighter-disjoint folds, baselines,
-trust checks) is done. The MATH section is left to write; until then evaluate()
-records those checks as pending and keeps going.
+Four checks: probe recovery, matchup AUC against strength-only and raw-stat models,
+predicted cycles, and dispersion vs cycles. Writes data/eval/{name}.json.
 """
 
 import argparse
@@ -15,8 +14,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.stats import rankdata, spearmanr
 from sklearn.decomposition import PCA
-from sklearn.metrics import balanced_accuracy_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import balanced_accuracy_score, log_loss
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.neighbors import KNeighborsClassifier
 
@@ -32,6 +33,8 @@ PCA_VARIANTS = {
     "all": list(BLOCK_PREFIXES),
 }
 CHANCE_TOL = 0.08   # how far a random or fingerprint embedding may drift from chance
+C_GRID = [1e-4, 3e-4, 1e-3, 3e-3, 0.01, 0.1, 1]   # penalty strengths tried on val
+PAIR_SCALES = [0.0, 0.1, 0.3, 1.0]   # pair-term weight tried on val; 0 means strength only
 
 
 @dataclass
@@ -89,30 +92,160 @@ def fit_fight_model(X: np.ndarray, Z: np.ndarray, fit_pairs: dict, blocks: dict)
     Fit P(A beats B): strength term plus a pair term that flips sign when A and B swap.
 
     fit_pairs: {"train": FightPairs, "val": FightPairs}. Test fights never reach this function.
-    Index rows with X[p.idx_a], Z[p.idx_b]. blocks["quality"] gives the rate_ columns of X.
-    Return any object; it is handed to the three checks below.
+    Z is centered and scaled on train-fight rows first, so the pair term carries no strength.
+    Penalty C and pair weight are picked by val log loss; the strength-only model picks its own C.
     """
-    raise NotImplementedError
+    quality_cols = blocks["quality"]
+    n_strength = len(quality_cols)
+    train, val = fit_pairs["train"], fit_pairs["val"]
+
+    train_rows = np.unique(np.concatenate([train.idx_a, train.idx_b]))
+    z_mean, z_std = Z[train_rows].mean(axis=0), Z[train_rows].std(axis=0) + 1e-8
+    Zs = (Z - z_mean) / z_std
+
+    table_train = _fight_table(X, Zs, train, quality_cols)
+    table_val = _fight_table(X, Zs, val, quality_cols)
+    weights = lambda scale, n: np.r_[np.ones(n_strength), np.full(n - n_strength, scale)]
+
+    best = (np.inf, None, None, None)
+    for scale in PAIR_SCALES:
+        w = weights(scale, table_train.shape[1])
+        model, C, loss = _fit_best_c(table_train * w, train.a_won, table_val * w, val.a_won)
+        if loss < best[0]:
+            best = (loss, model, C, scale)
+    _, full, c_full, pair_scale = best
+
+    strength_only, c_strength, _ = _fit_best_c(table_train[:, :n_strength], train.a_won,
+                                               table_val[:, :n_strength], val.a_won)
+
+    return {"full": full, "strength_only": strength_only, "C": c_full, "C_strength": c_strength,
+            "pair_scale": pair_scale, "quality_cols": quality_cols, "n_strength": n_strength,
+            "z_mean": z_mean, "z_std": z_std}
+
+
+def _fit_best_c(table_train, y_train, table_val, y_val):
+    """Logistic regression with no intercept, so swapping A and B flips the prediction."""
+    best, best_c, best_loss = None, None, np.inf
+    for C in C_GRID:
+        model = LogisticRegression(C=C, fit_intercept=False, max_iter=5000).fit(table_train, y_train)
+        loss = log_loss(y_val, model.predict_proba(table_val)[:, 1])
+        if loss < best_loss:
+            best, best_c, best_loss = model, C, loss
+    return best, best_c, best_loss
+
+
+def _fight_table(X: np.ndarray, Z: np.ndarray, pairs: FightPairs, quality_cols: list) -> np.ndarray:
+    """One row per fight: A-minus-B quality columns, then A-vs-B pair columns."""
+    strength = X[pairs.idx_a][:, quality_cols] - X[pairs.idx_b][:, quality_cols]
+
+    za, zb = Z[pairs.idx_a], Z[pairs.idx_b]
+    i, j = np.triu_indices(Z.shape[1], k=1)
+    pair = za[:, i] * zb[:, j] - za[:, j] * zb[:, i]
+
+    return np.hstack([strength, pair])
+
+
+def _logits(model: dict, X: np.ndarray, Z: np.ndarray, pairs: FightPairs, which: str = "full") -> np.ndarray:
+    Zs = (Z - model["z_mean"]) / model["z_std"]
+    table = _fight_table(X, Zs, pairs, model["quality_cols"])
+    if which == "strength_only":
+        return model[which].decision_function(table[:, :model["n_strength"]])
+    table[:, model["n_strength"]:] *= model["pair_scale"]
+    return model[which].decision_function(table)
+
+
+def pair_matrix(model: dict) -> np.ndarray:
+    """The pair term as a d x d matrix W with W = -W.T: pair logit = za @ W @ zb on scaled embeddings."""
+    d = len(model["z_mean"])
+    i, j = np.triu_indices(d, k=1)
+    pair_coef = model["full"].coef_[0][model["n_strength"]:] * model["pair_scale"]
+    W = np.zeros((d, d))
+    W[i, j], W[j, i] = pair_coef, -pair_coef
+    return W
+
+
+def _logit_matrix(model: dict, X: np.ndarray, Z: np.ndarray, rows: np.ndarray, which: str = "full") -> np.ndarray:
+    """L[a, b] = log-odds that fighter a beats fighter b, for every pair of rows at once."""
+    coef = model[which].coef_[0]
+    s = X[rows][:, model["quality_cols"]] @ coef[:model["n_strength"]]
+    L = s[:, None] - s[None, :]
+    if which == "full":
+        Zs = (Z[rows] - model["z_mean"]) / model["z_std"]
+        L = L + Zs @ pair_matrix(model) @ Zs.T
+    assert np.allclose(L, -L.T), "fight model is not antisymmetric"
+    return L
+
+
+def _auc(y: np.ndarray, score: np.ndarray) -> float:
+    """Chance a random winner-side fight scores above a random loser-side one (ties count half)."""
+    ranks = rankdata(score)
+    n_pos = y.sum()
+    n_neg = len(y) - n_pos
+    return float((ranks[y == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
 def check_matchup_auc(model, X: np.ndarray, Z: np.ndarray, fit_pairs: dict,
                       test_pairs: FightPairs, blocks: dict, n_boot: int, seed: int) -> dict:
     """
-    Does the embedding predict test fights better than the comparison model(s)?
+    Does the embedding predict test fights better than the comparison models?
 
-    Report the AUC gap with a range from resampling test fights n_boot times.
+    Compares against the strength-only model and a model on all 36 raw A-minus-B stats.
+    Ranges are 2.5-97.5 percentiles over n_boot resamples of test fights.
     """
-    raise NotImplementedError
+    train, val, test = fit_pairs["train"], fit_pairs["val"], test_pairs
+    raw, _, _ = _fit_best_c(X[train.idx_a] - X[train.idx_b], train.a_won,
+                         X[val.idx_a] - X[val.idx_b], val.a_won)
+
+    y = test.a_won
+    scores = {
+        "full": _logits(model, X, Z, test, "full"),
+        "strength_only": _logits(model, X, Z, test, "strength_only"),
+        "raw_stats": raw.decision_function(X[test.idx_a] - X[test.idx_b]),
+    }
+    out = {f"auc_{k}": _auc(y, s) for k, s in scores.items()}
+
+    rng = np.random.default_rng(seed)
+    gaps = {"gap_vs_strength": [], "gap_vs_raw": []}
+    for _ in range(n_boot):
+        idx = rng.integers(0, len(y), len(y))
+        full = _auc(y[idx], scores["full"][idx])
+        gaps["gap_vs_strength"].append(full - _auc(y[idx], scores["strength_only"][idx]))
+        gaps["gap_vs_raw"].append(full - _auc(y[idx], scores["raw_stats"][idx]))
+
+    out["gap_vs_strength"] = out["auc_full"] - out["auc_strength_only"]
+    out["gap_vs_raw"] = out["auc_full"] - out["auc_raw_stats"]
+    for k, v in gaps.items():
+        out[f"{k}_lo"], out[f"{k}_hi"] = np.percentile(v, [2.5, 97.5])
+    out["n_test_fights"] = len(y)
+    return out
 
 
-def check_cycles(model, X: np.ndarray, Z: np.ndarray, rows: np.ndarray,
-                 sample_rate: float, seed: int) -> dict:
+def _cycles_through(beats: np.ndarray) -> np.ndarray:
+    """Per fighter, how many predicted A > B > C > A loops he is in. beats[a, b] is 0/1."""
+    return np.diag(beats @ beats @ beats)
+
+
+def check_cycles(model, X: np.ndarray, Z: np.ndarray, rows: np.ndarray, margin: float = 0.05) -> dict:
     """
     How often does the fight model predict A > B > C > A?
 
+    Counts every triple exactly. "confident" only uses predictions at least margin away from 50%.
     rows: each test fighter's most recent snapshot, so all compared fighters are contemporaries.
     """
-    raise NotImplementedError
+    n = len(rows)
+    n_triples = n * (n - 1) * (n - 2) / 6
+    threshold = np.log((0.5 + margin) / (0.5 - margin))
+
+    strength_beats = (_logit_matrix(model, X, Z, rows, "strength_only") > 0).astype(float)
+    assert _cycles_through(strength_beats).sum() == 0, "strength-only model produced a cycle"
+
+    L = _logit_matrix(model, X, Z, rows, "full")
+    cycles = _cycles_through((L > 0).astype(float)).sum() / 3
+    confident = _cycles_through((L > threshold).astype(float)).sum() / 3
+    return {"n_fighters": n, "n_triples": int(n_triples),
+            "n_cycles": int(cycles), "cycle_rate": cycles / n_triples,
+            "n_confident_cycles": int(confident), "confident_cycle_rate": confident / n_triples,
+            "confident_margin": margin}
 
 
 def check_dispersion_correlation(model, X: np.ndarray, Z: np.ndarray, rows: np.ndarray,
@@ -121,8 +254,24 @@ def check_dispersion_correlation(model, X: np.ndarray, Z: np.ndarray, rows: np.n
     Do high-dispersion fighters show up in predicted cycles more often?
 
     D: (n_rows, 4) scaled disp_ columns, named by dispersion_cols. rows as in check_cycles.
+    A fighter who beats (or loses to) almost everyone cannot be in many loops, so the
+    "share" version divides by wins x losses, the most loops he could be in.
     """
-    raise NotImplementedError
+    beats = (_logit_matrix(model, X, Z, rows, "full") > 0).astype(float)
+    in_cycles = _cycles_through(beats)
+    wins = beats.sum(axis=1)
+    possible = wins * (len(rows) - 1 - wins)
+    share = np.divide(in_cycles, possible, out=np.zeros_like(in_cycles), where=possible > 0)
+
+    Dr = D[rows]
+    columns = {**{c: Dr[:, k] for k, c in enumerate(dispersion_cols)}, "disp_mean": Dr.mean(axis=1)}
+    out = {}
+    for name, values in columns.items():
+        for target, y in (("cycles", in_cycles), ("cycle_share", share)):
+            r, p = spearmanr(values, y) if np.ptp(y) > 0 else (0.0, 1.0)   # no cycles at all
+            out[f"{name}.{target}_r"] = float(r)
+            out[f"{name}.{target}_p"] = float(p)
+    return out
 
 
 # ============================================================================
@@ -340,6 +489,30 @@ def assert_harness_not_fooled(data: EvalData, config: dict) -> bool:
             f"chance is {chance:.3f}"
         )
         print(f"✓ {name} embedding scores {mean:.3f} on background (chance {chance:.3f})")
+
+    Z = candidates["random"][0]
+    fit_pairs = {s: data.pairs[s] for s in ("train", "val")}
+    model = fit_fight_model(data.X, Z, fit_pairs, data.blocks)
+    m = check_matchup_auc(model, data.X, Z, fit_pairs, data.pairs["test"], data.blocks, 200, 0)
+    assert m["gap_vs_strength_lo"] <= 0, (
+        f"HARNESS FOOLED: random embedding beats strength-only by {m['gap_vs_strength']:.3f} AUC "
+        f"(range {m['gap_vs_strength_lo']:.3f} to {m['gap_vs_strength_hi']:.3f})"
+    )
+    print(f"✓ random embedding adds {m['gap_vs_strength']:+.3f} AUC over strength-only "
+          f"(range {m['gap_vs_strength_lo']:+.3f} to {m['gap_vs_strength_hi']:+.3f})")
+    return True
+
+
+def assert_fight_model_consistent(model: dict, data: EvalData, Z: np.ndarray) -> bool:
+    """The all-pairs matrix used for cycles must agree with the per-fight predictions used for AUC."""
+    p = data.pairs["val"]
+    k = min(200, len(p.fight_id))
+    sub = FightPairs(p.idx_a[:k], p.idx_b[:k], p.a_won[:k], p.fight_id[:k])
+    rows = np.concatenate([sub.idx_a, sub.idx_b])
+    for which in ("full", "strength_only"):
+        L = _logit_matrix(model, data.X, Z, rows, which)
+        assert np.allclose(L[np.arange(k), k + np.arange(k)], _logits(model, data.X, Z, sub, which)), \
+            f"{which}: logit matrix disagrees with per-fight logits"
     return True
 
 
@@ -390,11 +563,13 @@ def evaluate(Z: np.ndarray, data: EvalData, name: str, config: dict, eval_dir: s
         for check in ("matchup", "cycles", "dispersion"):
             results[check] = {"pending": "fit_fight_model"}
     else:
+        assert_fight_model_consistent(model, data, Z)
+        results["fight_model"] = {k: model[k] for k in ("C", "C_strength", "pair_scale")}
         rows = latest_rows(data.meta)
         disp = data.blocks["dispersion"]
         results["matchup"] = _run(check_matchup_auc, model, data.X, Z, fit_pairs, data.pairs["test"],
                                   data.blocks, ev["matchup_bootstrap_resamples"], seed)
-        results["cycles"] = _run(check_cycles, model, data.X, Z, rows, ev["cycle_sample_rate"], seed)
+        results["cycles"] = _run(check_cycles, model, data.X, Z, rows)
         results["dispersion"] = _run(check_dispersion_correlation, model, data.X, Z, rows,
                                      data.X[:, disp], [data.feature_cols[i] for i in disp])
     for check in ("matchup", "cycles", "dispersion"):

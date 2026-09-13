@@ -87,7 +87,6 @@ training:
 # === EVALUATION ===
 eval:
   probe_k: 10 # k-NN for probe recovery
-  cycle_sample_rate: 0.5 # Sample this fraction of triples for cycle detection
   matchup_bootstrap_resamples: 1000
 
 # === PATHS (relative to repo root) ===
