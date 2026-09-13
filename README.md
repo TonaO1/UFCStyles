@@ -33,10 +33,34 @@ python src/models/contrastive.py
 # 5. Serving bundle (NumPy weights + fighter records)
 python src/serve/export.py --model contrastive_style_8
 
-# 6. Deploy (Terraform + Docker not finished yet), then fill the table
-terraform -chdir=infra apply
-python src/serve/load_dynamodb.py --table ufc-fighter-embeddings-dev
+# 6. Deploy to your own AWS account: see "Deploy it yourself" below
 ```
+
+## Deploy it yourself
+
+Serving runs in your own AWS account with your own credentials. Keys live in `~/.aws`
+(from `aws configure` or SSO) and never go in this repo. `terraform.tfstate` is git-ignored.
+
+| Service | Role |
+|---|---|
+| ECR | Stores the Lambda's Docker image |
+| Lambda | Runs `src/serve/handler.py` on each request |
+| API Gateway (HTTP API) | Public URL for `GET /similar` and `GET /matchup` |
+| DynamoDB | One record per fighter: embedding, strength, name, background |
+| CloudWatch Logs | Handler output and errors |
+| IAM | Lets Lambda read the table and write logs, and API Gateway call Lambda |
+
+Needs the AWS CLI, Docker and Terraform 1.5+.
+
+1. `python src/serve/export.py --model contrastive_style_8` builds the fighter records and `fight_model.npz`.
+2. Create only the ECR repository first: `terraform -chdir=infra apply -target=<ecr resource>`.
+3. Build the image from `src/serve/Dockerfile`, log Docker in to ECR, then tag and push. The image only needs numpy: the handler, `inference.py` and `fight_model.npz`.
+4. `terraform -chdir=infra apply` creates everything else.
+5. `python src/serve/load_dynamodb.py --table <table name>` fills the table.
+6. `curl "<api url>/similar?fighter=Alex%20Pereira"`
+7. `terraform -chdir=infra destroy` when done.
+
+Costs are per request and per GB stored, so a short deploy-and-destroy costs very little. Check that nothing is left afterwards.
 
 ## Data Flow
 
