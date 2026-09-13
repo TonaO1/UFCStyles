@@ -1,5 +1,6 @@
 """
-Pick the fighters to hand-label and write a blank data/labels/background.csv.
+Pick the fighters to label and add them as blank rows to data/labels/background.csv.
+Existing labels are kept.
 
 Samples only fighters with test-split snapshots (the probe scores test rows only),
 proportional by each fighter's most common test weight class.
@@ -33,21 +34,23 @@ def main():
     paths = config["paths"]
     out = Path(paths["labels"]) / "background.csv"
 
-    if out.exists():
-        existing = pd.read_csv(out)
-        assert not existing["fighter_id"].astype(str).str.match(HEX_ID).any(), \
-            f"{out} already holds real labels; refusing to overwrite"
-
     test = pd.read_parquet(Path(paths["snapshots"]) / "test.parquet")
     fighters = pd.read_csv(Path(paths["raw"]) / paths["snapshot_date"] / "fighters.csv")
-    picked = sample_fighters(test, fighters, config["labels"]["background"]["n_samples"],
-                             config["training"]["seed"])
+    n = config["labels"]["background"]["n_samples"]
+    n = test["fighter_id"].nunique() if n == "all" else n
+    picked = sample_fighters(test, fighters, n, config["training"]["seed"])
 
     # weight_class stays out of the file: the harness would read it as a probe column.
-    sheet = picked[["fighter_id", "fighter_name"]].assign(background="", confidence="", notes="")
+    blank = picked[["fighter_id", "fighter_name"]].assign(background="", confidence="", notes="")
+
+    existing = pd.read_csv(out) if out.exists() else blank.iloc[:0]
+    assert existing["fighter_id"].astype(str).str.match(HEX_ID).all(), f"{out} has malformed fighter ids"
+    new = blank[~blank["fighter_id"].isin(existing["fighter_id"])]
+    sheet = pd.concat([existing, new], ignore_index=True)
+    assert sheet["fighter_id"].is_unique
+
     sheet.to_csv(out, index=False)
-    print(f"wrote {len(sheet)} fighters to {out}")
-    print(picked["weight_class"].value_counts().to_string())
+    print(f"kept {len(existing)} existing rows, added {len(new)} blank rows -> {len(sheet)} in {out}")
 
 
 if __name__ == "__main__":

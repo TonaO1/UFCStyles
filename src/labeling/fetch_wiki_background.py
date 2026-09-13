@@ -22,6 +22,7 @@ API = "https://en.wikipedia.org/w/api.php"
 UA = "UFCStyles-labeling/0.1 (tonaotoro@gmail.com)"
 SECTION_KEYS = ("background", "early life", "early years", "personal life", "amateur", "career")
 MAX_CHARS = 2500
+DISAMBIGUATION = re.compile(r"may (also )?refer to", re.IGNORECASE)   # name lists mention "mixed martial" too
 
 
 def _get(params: dict) -> dict:
@@ -41,7 +42,7 @@ def _extract(title: str) -> tuple[str, str]:
                  "exsectionformat": "wiki", "redirects": 1, "titles": title})
     page = next(iter(data.get("query", {}).get("pages", {}).values()), {})
     text = page.get("extract", "")
-    if not text or "mixed martial" not in text.lower():
+    if not text or "mixed martial" not in text.lower() or DISAMBIGUATION.search(text[:500]):
         return "", ""
     return page.get("title", title), text
 
@@ -68,7 +69,8 @@ def main():
         if r.fighter_id in set(done["fighter_id"]):
             continue
         title, text = "", ""
-        for candidate in (r.fighter_name, f"{r.fighter_name} (fighter)"):
+        for candidate in (r.fighter_name, f"{r.fighter_name} (fighter)",
+                          f"{r.fighter_name} (mixed martial artist)"):
             title, text = _extract(candidate)
             time.sleep(1.0)
             if text:

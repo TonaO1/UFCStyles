@@ -38,7 +38,7 @@ features:
 # === LABELING ===
 labels:
   background:
-    n_samples: 200
+    n_samples: all # every test-split fighter; was 200 when labeling meant watching video
     stratify_by: ["era_tercile", "weight_class"]
   guard:
     n_samples: 200 # Per bout, not per fighter
