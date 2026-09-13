@@ -1,231 +1,151 @@
 """
-AWS Lambda handler for serving style embeddings.
+AWS Lambda handler behind an API Gateway HTTP API.
 
-Endpoint contracts:
-  GET /similar?fighter=<name>&k=10  ->  {"fighter": name, "similar": [...]}
-  GET /matchup?a=<name>&b=<name>    ->  {"a": name, "b": name, "p_a_wins": 0.65, ...}
+  GET /similar?fighter=<name or id>&k=10  -> closest fighters by style embedding
+  GET /matchup?a=<name or id>&b=<name or id> -> P(a beats b) from the harness fight model
 
-You write:
-  - NumPy-based encoder (no PyTorch in Lambda)
-  - DynamoDB queries
-  - Response formatting
+Fighter records live in DynamoDB (src/serve/load_dynamodb.py fills it). fight_model.npz
+ships next to this file. Env vars: TABLE_NAME, FIGHT_MODEL_PATH.
 """
 
 import json
-import boto3
-import numpy as np
+import os
+import sys
+import traceback
+from decimal import Decimal
 from pathlib import Path
 
-# ============================================================================
-# INITIALIZATION
-# ============================================================================
+import boto3
+import numpy as np
 
-# Load encoder weights and scaler
-ENCODER_WEIGHTS = np.load("encoder_weights.npz")
-# Parse weights into layers
-enc_layers = []
-i = 0
-while f"arr_{i}" in ENCODER_WEIGHTS:
-    enc_layers.append(ENCODER_WEIGHTS[f"arr_{i}"])
-    i += 1
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from inference import load_npz, most_similar, p_a_wins
 
-SCALER_MEAN = np.array([0.0] * 28)  # Placeholder; load from scaler.pkl if needed
-SCALER_SCALE = np.array([1.0] * 28)
+TABLE_NAME = os.environ.get("TABLE_NAME", "ufc-fighter-embeddings-dev")
+FIGHT_MODEL_PATH = os.environ.get("FIGHT_MODEL_PATH", str(Path(__file__).resolve().parent / "fight_model.npz"))
+MAX_K = 50
 
-# DynamoDB client
-dynamodb = boto3.resource("dynamodb")
-table = dynamodb.Table("ufc_fighter_embeddings")
+# Survives between requests while the Lambda stays warm.
+_cache = {}
 
 
-# ============================================================================
-# ENCODER (NUMPY, NO PYTORCH)
-# ============================================================================
-
-def gelu(x):
-    """GELU activation."""
-    return 0.5 * x * (1 + np.tanh(np.sqrt(2 / np.pi) * (x + 0.044715 * x**3)))
+class ClientError(Exception):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
 
 
-def encode(x: np.ndarray) -> np.ndarray:
-    """
-    Encode features to embedding using NumPy.
-    
-    Args:
-        x: (d_in,) feature vector
-    
-    Returns:
-        (d_latent,) embedding
-    """
-    # Normalize
-    x = (x - SCALER_MEAN) / (SCALER_SCALE + 1e-8)
-    
-    # Forward pass through encoder layers
-    # Assuming encoder_weights has alternating W and b:
-    # (W1, W2, W3, b1, b2, b3) or similar
-    
-    for i in range(0, len(enc_layers) - 1, 2):
-        w = enc_layers[i]
-        b = enc_layers[i + 1] if i + 1 < len(enc_layers) else None
-        
-        x = x @ w.T + (b if b is not None else 0)
-        
-        # GELU on all but the last layer
-        if i + 2 < len(enc_layers):
-            x = gelu(x)
-    
-    return x
+def _from_dynamo(value):
+    """DynamoDB hands every number back as Decimal; turn them into floats."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, list):
+        return [_from_dynamo(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _from_dynamo(v) for k, v in value.items()}
+    return value
 
 
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity between two vectors."""
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8)
+def _table():
+    if "table" not in _cache:
+        _cache["table"] = boto3.resource("dynamodb").Table(TABLE_NAME)
+    return _cache["table"]
 
 
-# ============================================================================
-# ENDPOINT: /similar
-# ============================================================================
-
-def get_similar_fighters(fighter_name: str, k: int = 10) -> dict:
-    """
-    Find k fighters most similar in embedding space.
-    
-    Args:
-        fighter_name: fighter name (must be in DynamoDB)
-        k: number of results
-    
-    Returns:
-        dict with similar fighters and similarities
-    """
-    
-    # Lookup fighter in DynamoDB
-    response = table.get_item(Key={"fighter_id": fighter_name})
-    
-    if "Item" not in response:
-        return {"error": f"Fighter '{fighter_name}' not found"}
-    
-    fighter_item = response["Item"]
-    fighter_embedding = np.array(fighter_item["embedding"])
-    
-    # Scan all fighters and compute distances
-    # (This is brute-force; at scale, use a vector DB)
-    response = table.scan()
-    
-    similarities = []
-    for item in response.get("Items", []):
-        other_name = item.get("fighter_id")
-        if other_name == fighter_name:
-            continue
-        
-        other_embedding = np.array(item.get("embedding", []))
-        if len(other_embedding) != len(fighter_embedding):
-            continue
-        
-        sim = cosine_similarity(fighter_embedding, other_embedding)
-        similarities.append((other_name, sim))
-    
-    # Top k
-    similarities.sort(key=lambda x: x[1], reverse=True)
-    top_k = similarities[:k]
-    
-    return {
-        "fighter": fighter_name,
-        "similar": [
-            {"name": name, "similarity": float(sim)}
-            for name, sim in top_k
-        ]
-    }
+def _fighters() -> dict:
+    """Scan the table once per warm Lambda. ~1,000 small records fit in memory easily."""
+    if "fighters" not in _cache:
+        items, kwargs = [], {}
+        while True:
+            page = _table().scan(**kwargs)
+            items += page["Items"]
+            if "LastEvaluatedKey" not in page:
+                break
+            kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+        records = [_from_dynamo(item) for item in items]
+        by_name = {}
+        for n, r in enumerate(records):
+            by_name.setdefault(r["fighter_name"].lower(), []).append(n)
+        _cache["fighters"] = {
+            "records": records,
+            "Z": np.array([r["embedding"] for r in records]),
+            "by_id": {r["fighter_id"]: n for n, r in enumerate(records)},
+            "by_name": by_name,
+        }
+    return _cache["fighters"]
 
 
-# ============================================================================
-# ENDPOINT: /matchup
-# ============================================================================
-
-def get_matchup(fighter_a: str, fighter_b: str) -> dict:
-    """
-    Predict matchup outcome based on embedding difference.
-    
-    Args:
-        fighter_a, fighter_b: fighter names
-    
-    Returns:
-        dict with P(a wins), P(b wins), matchup notes
-    """
-    
-    # Lookup both fighters
-    resp_a = table.get_item(Key={"fighter_id": fighter_a})
-    resp_b = table.get_item(Key={"fighter_id": fighter_b})
-    
-    if "Item" not in resp_a:
-        return {"error": f"Fighter '{fighter_a}' not found"}
-    if "Item" not in resp_b:
-        return {"error": f"Fighter '{fighter_b}' not found"}
-    
-    emb_a = np.array(resp_a["Item"]["embedding"])
-    emb_b = np.array(resp_b["Item"]["embedding"])
-    
-    # Simple model: P(A wins) = sigmoid(w @ (e_a - e_b))
-    # For now, use random weight (you would train this)
-    w = np.random.randn(len(emb_a))
-    w = w / np.linalg.norm(w)
-    
-    logit = np.dot(w, emb_a - emb_b)
-    p_a_wins = 1.0 / (1.0 + np.exp(-logit))
-    p_b_wins = 1.0 - p_a_wins
-    
-    # Style differences (which dimensions differ most?)
-    diff = emb_a - emb_b
-    most_different = np.argsort(-np.abs(diff))[:3]
-    
-    return {
-        "fighter_a": fighter_a,
-        "fighter_b": fighter_b,
-        "p_a_wins": round(p_a_wins, 3),
-        "p_b_wins": round(p_b_wins, 3),
-        "style_diff_dimensions": most_different.tolist(),
-        "note": "This is a style-based prediction, not a quality prediction. Results are for analysis only."
-    }
+def _fight_model() -> dict:
+    if "fight_model" not in _cache:
+        _cache["fight_model"] = load_npz(FIGHT_MODEL_PATH)
+    return _cache["fight_model"]
 
 
-# ============================================================================
-# LAMBDA HANDLER
-# ============================================================================
+def _find(key: str) -> int:
+    f = _fighters()
+    if key in f["by_id"]:
+        return f["by_id"][key]
+    matches = f["by_name"].get(key.strip().lower(), [])
+    if not matches:
+        raise ClientError(404, f"fighter not found: {key}")
+    if len(matches) > 1:
+        ids = [f["records"][n]["fighter_id"] for n in matches]
+        raise ClientError(409, f"{len(matches)} fighters are named {key}; use an id: {ids}")
+    return matches[0]
+
+
+def _summary(record: dict) -> dict:
+    return {k: record.get(k) for k in ("fighter_id", "fighter_name", "weight_class", "background", "snapshot_date")}
+
+
+def get_similar(fighter: str, k: int) -> dict:
+    f = _fighters()
+    i = _find(fighter)
+    top, sims = most_similar(f["Z"], i, k)
+    return {"fighter": _summary(f["records"][i]),
+            "similar": [{**_summary(f["records"][t]), "similarity": round(float(s), 4)} for t, s in zip(top, sims)]}
+
+
+def get_matchup(a: str, b: str) -> dict:
+    f = _fighters()
+    ra, rb = f["records"][_find(a)], f["records"][_find(b)]
+    if ra["fighter_id"] == rb["fighter_id"]:
+        raise ClientError(400, "a and b are the same fighter")
+    fm = _fight_model()
+    p = p_a_wins(fm, ra["strength"], rb["strength"], np.array(ra["embedding"]), np.array(rb["embedding"]))
+    return {"a": _summary(ra), "b": _summary(rb), "p_a_wins": round(p, 4), "p_b_wins": round(1 - p, 4),
+            "style_term_used": bool(np.any(fm["W"]))}
+
+
+def _required(params: dict, name: str) -> str:
+    value = params.get(name)
+    if not value:
+        raise ClientError(400, f"missing query parameter: {name}")
+    return value
+
 
 def lambda_handler(event, context):
-    """
-    API Gateway Lambda handler.
-    
-    Routes:
-      - GET /similar?fighter=<name>&k=10
-      - GET /matchup?a=<a_name>&b=<b_name>
-    """
-    
+    """Route an HTTP API (payload v2) request and always answer with JSON."""
+    params = event.get("queryStringParameters") or {}
+    path = event.get("rawPath", "")
+    method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
     try:
-        http_method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
-        path = event.get("rawPath", "")
-        query_params = event.get("queryStringParameters", {})
-        
-        if path == "/similar" and http_method == "GET":
-            fighter = query_params.get("fighter", "")
-            k = int(query_params.get("k", 10))
-            result = get_similar_fighters(fighter, k)
-        
-        elif path == "/matchup" and http_method == "GET":
-            fighter_a = query_params.get("a", "")
-            fighter_b = query_params.get("b", "")
-            result = get_matchup(fighter_a, fighter_b)
-        
+        if method != "GET":
+            raise ClientError(405, f"method not allowed: {method}")
+        if path.endswith("/similar"):
+            try:
+                k = int(params.get("k", 10))
+            except ValueError:
+                raise ClientError(400, "k must be an integer")
+            status, body = 200, get_similar(_required(params, "fighter"), min(max(k, 1), MAX_K))
+        elif path.endswith("/matchup"):
+            status, body = 200, get_matchup(_required(params, "a"), _required(params, "b"))
         else:
-            result = {"error": f"Unknown route: {path}"}
-        
-        return {
-            "statusCode": 200 if "error" not in result else 404,
-            "body": json.dumps(result),
-            "headers": {"Content-Type": "application/json"}
-        }
-    
-    except Exception as e:
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": str(e)}),
-            "headers": {"Content-Type": "application/json"}
-        }
+            raise ClientError(404, f"unknown route: {path}")
+    except ClientError as e:
+        status, body = e.status, {"error": str(e)}
+    except Exception:
+        traceback.print_exc()   # lands in CloudWatch Logs
+        status, body = 500, {"error": "internal error"}
+
+    return {"statusCode": status, "headers": {"Content-Type": "application/json"}, "body": json.dumps(body)}
