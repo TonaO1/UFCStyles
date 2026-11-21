@@ -37,3 +37,19 @@ resource "aws_ecr_repository" "serving" {
 output "ecr_repository_url" {
   value = aws_ecr_repository.serving.repository_url # CMD Terraform output returns value which is our "serving" URL
 }
+
+resource "aws_dynamodb_table" "fighters" {
+  name = "ufc_fighter_embeddings-${var.suffix}" # Matching convention used in handler.py
+  billing_mode = "PAY_PER_REQUEST" # Default is Provisioned which makes you pay even when service is idle
+  hash_key = "fighter_id" # Primary key to differentiate different embeddings
+
+  attribute { # Attribute for the hashkey
+    name = "fighter_id"
+    type = "S"
+
+  }
+}
+
+output "dynamodb_table_name" {
+  value = aws_dynamodb_table.fighters.name
+}
