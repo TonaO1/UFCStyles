@@ -139,7 +139,7 @@ It was redeployed on 2026-11-21 from `infra/main.tf`, with every resource writte
 - An API Gateway HTTP API: a Lambda proxy integration on payload v2.0, routes `GET /similar` and `GET /matchup`, and a `$default` stage throttled to 5 requests/s with a burst of 10.
 - `GET /similar?fighter=Alex%20Pereira&k=5` through the public URL returns the same five neighbours, in the same order, as the table above.
 
-It was load tested while live (see Load test below), and will be torn down after.
+It was load tested while live (see Load test below), then torn down on 2026-11-22 with `terraform destroy`: all 13 resources were removed, and AWS showed none left in us-east-2. There is no live endpoint. "Deploy it yourself" in the [README](README.md) rebuilds the same stack.
 
 ## Load test
 
