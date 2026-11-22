@@ -132,4 +132,11 @@ This was deployed on AWS, following "Deploy it yourself" in the [README](README.
 - **Serving:** NumPy-only inference, AWS Lambda (container image), Amazon API Gateway (HTTP API), Amazon DynamoDB, Amazon ECR, CloudWatch Logs, IAM
 - **Infrastructure:** Terraform, Docker
 
-It has since been torn down with `terraform destroy`, so there is no live endpoint.
+The first deployment was torn down with `terraform destroy`.
+
+It was redeployed on 2026-11-21 from `infra/main.tf`, with every resource written out by hand:
+- ECR, DynamoDB, the Lambda's IAM role and policies, a CloudWatch log group with 7-day retention, and the Lambda.
+- An API Gateway HTTP API: a Lambda proxy integration on payload v2.0, routes `GET /similar` and `GET /matchup`, and a `$default` stage throttled to 5 requests/s with a burst of 10.
+- `GET /similar?fighter=Alex%20Pereira&k=5` through the public URL returns the same five neighbours, in the same order, as the table above.
+
+It is live while load tests run, and will be torn down after them.
