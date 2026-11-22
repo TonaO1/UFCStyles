@@ -139,4 +139,42 @@ It was redeployed on 2026-11-21 from `infra/main.tf`, with every resource writte
 - An API Gateway HTTP API: a Lambda proxy integration on payload v2.0, routes `GET /similar` and `GET /matchup`, and a `$default` stage throttled to 5 requests/s with a burst of 10.
 - `GET /similar?fighter=Alex%20Pereira&k=5` through the public URL returns the same five neighbours, in the same order, as the table above.
 
-It is live while load tests run, and will be torn down after them.
+It was load tested while live (see Load test below), and will be torn down after.
+
+## Load test
+
+Run with k6 from a laptop on the US East Coast against the live API on 2026-11-22.
+Traffic is 70% `/similar` (k=10) and 30% `/matchup`, using random fighter ids.
+Server-side numbers come from CloudWatch for the same window, and the request counts from k6, API Gateway and Lambda match exactly.
+
+```bash
+k6 run -e BASE_URL="$(terraform -chdir=infra output -raw api_url)" -e TEST=throttle -e RATE=20 loadtest/api.js
+k6 run -e BASE_URL="$(terraform -chdir=infra output -raw api_url)" -e TEST=capacity -e PEAK=100 loadtest/api.js
+python loadtest/cloudwatch_metrics.py loadtest/results/<run>.json
+```
+
+Raw results: `loadtest/results/`, one k6 file and one `.cloudwatch.json` file per run.
+
+**Capacity: ramp to 100 req/s over 1 min, hold 2 min, ramp down 30 s.** The stage limit was raised to 200 req/s (burst 400) for this run only, then reset to 5/10.
+
+| | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| End to end, from k6 | 39.0 ms | 64.8 ms | 96.2 ms | 764 ms |
+| API Gateway `Latency` | 12.1 ms | 23.0 ms | 35.6 ms | |
+| API Gateway `IntegrationLatency` | 10.7 ms | 21.6 ms | 33.9 ms | |
+| Lambda `Duration` | 1.46 ms | 3.27 ms | 8.98 ms | 1,005 ms |
+
+- 16,649 requests: 0 errors, 0 throttled, 0 dropped by k6, and every response passed its checks.
+- Peak Lambda concurrency was 10 instances, and memory peaked at 120 MB of the 512 MB allocated.
+- 1 cold start, with init taking 332 ms. Instances from the throttle test 7 minutes earlier were still warm, so this run measures a warm service. The 1,005 ms max is the cold instance's first request, which includes the DynamoDB scan.
+- About 40 ms of the end-to-end p95 is the network between the laptop and us-east-2. API Gateway's own p95 is 23 ms.
+
+**Throttle: 20 req/s for 1 min against the default 5 req/s limit, burst 10.**
+
+- 1,195 requests: 875 got 429 (73.2%, against about 74% predicted for 5/s plus a burst of 10), 0 got 5xx.
+- Lambda ran 320 times, exactly the number of 200s, so throttled requests never reached it.
+- The first burst opened 24 instances at once, which meant 23 cold starts: init averaged 402 ms and maxed at 798 ms. Each cold instance also scans DynamoDB on its first request, so cold requests took 1–1.9 s against a 1.85 ms warm Lambda median.
+
+**Known weak spots**
+- One run of each test, from one location.
+- A cold-start-heavy test at high rate was not run, so the capacity numbers are for a warm service.
