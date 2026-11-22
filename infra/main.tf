@@ -129,3 +129,58 @@ resource "aws_lambda_function" "api" {
 output "lambda_function_name" {
   value = aws_lambda_function.api.function_name
 }
+
+# Defines the API gateway
+# We are using v2 because our handler.py calls for rawPath and requestContext.http.method which only exist on v2's payload
+resource "aws_apigatewayv2_api" "http" {
+  name          = "ufc-styles-http-${var.suffix}"
+  protocol_type = "HTTP" # Must explicitly define HTTP protocol type because default is Websocket protocol
+}
+# Defines how the API talks to Lambda (HTTP Method,etc)
+resource "aws_apigatewayv2_integration" "lambda" {
+  api_id                 = aws_apigatewayv2_api.http.id       # Identifier for the API gateway resource we provisioned
+  integration_type       = "AWS_PROXY"                        # API Gateway sends the request as is; handler.py reads the HTTP request and returns the HTTP response itself
+  integration_uri        = aws_lambda_function.api.invoke_arn # The special api gateway resource location for the Lambda function
+  integration_method     = "POST"                             # Any call to Lambda Function is a post regardless of what request user sends to API Gateway
+  payload_format_version = "2.0"
+}
+
+# Defines the request API routes available at API gateway
+resource "aws_apigatewayv2_route" "similar" {
+  api_id    = aws_apigatewayv2_api.http.id                             # Identifier for the API gateway the route belongs to
+  route_key = "GET /similar"                                           # API endpoint URL path as expected by handler.py
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}" # Delineates which API integration handles the endpoint
+}
+
+resource "aws_apigatewayv2_route" "matchup" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "GET /matchup"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+# The "Stage" where the API URL is live
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.http.id
+  name        = "$default"
+  auto_deploy = true # Makes sure changes to routes go live without manual overhead
+
+  # Rate-limiting since this is a publicly accesible URL
+  default_route_settings {
+    throttling_burst_limit = 10
+    throttling_rate_limit  = 5
+  }
+
+}
+
+# Gives API gateway permission to invoke lambda function
+resource "aws_lambda_permission" "apigw" {
+  statement_id  = "AllowAPIGatewayInvoke"               # Permission name for permission granted to api gateway
+  action        = "lambda:InvokeFunction"               # Action that api gateway can invoke on function
+  function_name = aws_lambda_function.api.function_name # name of lambda function being invoked
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*/*" # Limits invoke permission to our api gateway only
+}
+
+output "api_url" {
+  value = aws_apigatewayv2_stage.default.invoke_url
+}
