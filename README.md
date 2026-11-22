@@ -53,12 +53,15 @@ Serving runs in your own AWS account with your own credentials. Keys live in `~/
 Needs the AWS CLI, Docker and Terraform 1.5+.
 
 1. `python src/serve/export.py --model contrastive_style_8` builds the fighter records and `fight_model.npz`.
-2. Create only the ECR repository first: `terraform -chdir=infra apply -target=<ecr resource>`.
-3. Build the image from `src/serve/Dockerfile`, log Docker in to ECR, then tag and push. The image only needs numpy: the handler, `inference.py` and `fight_model.npz`.
-4. `terraform -chdir=infra apply` creates everything else.
-5. `python src/serve/load_dynamodb.py --table <table name>` fills the table.
-6. `curl "<api url>/similar?fighter=Alex%20Pereira"`
+2. Create only the ECR repository first: `terraform -chdir=infra apply -target=aws_ecr_repository.serving`.
+3. Build the image from `src/serve/Dockerfile` for `linux/arm64`, log Docker in to ECR, then tag and push as `:latest`. The image only needs numpy: the handler, `inference.py` and `fight_model.npz`.
+4. `terraform -chdir=infra apply` creates everything else, and prints `api_url`, `dynamodb_table_name`, `ecr_repository_url` and `lambda_function_name`.
+5. `python src/serve/load_dynamodb.py --table "$(terraform -chdir=infra output -raw dynamodb_table_name)"` fills the table.
+6. `curl "$(terraform -chdir=infra output -raw api_url)similar?fighter=Alex%20Pereira&k=5"` (`api_url` already ends in `/`).
 7. `terraform -chdir=infra destroy` when done.
+
+The API has no auth, so the `$default` stage is throttled to 5 requests/s with a burst of 10. Requests over that get a 429.
+Paths with no route (anything but `GET /similar` and `GET /matchup`) get API Gateway's own 404 and never reach Lambda.
 
 Costs are per request and per GB stored, so a short deploy-and-destroy costs very little. Check that nothing is left afterwards.
 
