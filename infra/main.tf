@@ -90,7 +90,6 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   # Ready-made policy for allowing Lambda to send logs to AWS CloudWatch
   # Note: We don't need to provision a CloudWatch resource because it is on by default for every account and region
-
 }
 
 locals {
@@ -99,7 +98,34 @@ locals {
 # Adds AWS Cloudwatch group to Terraform so we can set retention data (default forever)
 # Without defining it, Terraform cannot tear down the log group or affect it anyway
 resource "aws_cloudwatch_log_group" "lambda" {
-  name = "/aws/lambda/${local.function_name}"
+  name              = "/aws/lambda/${local.function_name}"
   retention_in_days = 7
 }
 
+resource "aws_lambda_function" "api" {
+  function_name = local.function_name
+  role          = aws_iam_role.lambda.arn
+  # Role needs ARN because AWS Lambda can only look up a role by ARN unlike the policies which can look each other up by name
+
+  package_type  = "Image"                                               # Specifies that this lambda function is in a docker image
+  image_uri     = "${aws_ecr_repository.serving.repository_url}:latest" # ECR REPO URL where Lambda function runs
+  architectures = ["arm64"]                                             # Specifies the CPU architecture for the mac
+
+  memory_size = 512 # Amount of memory allocated to Lambda function (determines speed of lambda on cold starts)
+  timeout     = 10  # Default is 3 seconds for timeout on a lambda function request, 10 seconds gives more leeway
+
+  environment {
+    variables = {
+      TABLE_NAME = aws_dynamodb_table.fighters.name # ENV VAR that handler.py uses
+    }
+  }
+  logging_config { # ensures log group is the resource we designed and that log format is not JSON default
+    log_format = "Text"
+    log_group  = aws_cloudwatch_log_group.lambda.name
+  }
+}
+# Note: Output is used to give out about resource information used by CI scripts for monitoring or other modules/scripts for logic
+
+output "lambda_function_name" {
+  value = aws_lambda_function.api.function_name
+}
