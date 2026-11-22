@@ -1,0 +1,38 @@
+{
+  "run": "throttle_20rps_2026-11-22T02-52-05.json",
+  "window": [
+    "2026-11-22T02:51:00+00:00",
+    "2026-11-22T02:54:05.221000+00:00"
+  ],
+  "api_id": "m6zytoyao8",
+  "function": "ufc-styles-api-dev",
+  "metrics": {
+    "api_count": 1195.0,
+    "api_4xx": 875.0,
+    "api_5xx": 0.0,
+    "lambda_invocations": 320.0,
+    "lambda_errors": 0.0,
+    "lambda_throttles": 0.0,
+    "lambda_concurrency_max": 24.0,
+    "lambda_duration_max": 1888.45,
+    "api_latency_p50": 1.08,
+    "api_integration_latency_p50": 13.18,
+    "lambda_duration_p50": 1.85,
+    "api_latency_p95": 17.9,
+    "api_integration_latency_p95": 1140.63,
+    "lambda_duration_p95": 1007.56,
+    "api_latency_p99": 1213.67,
+    "api_integration_latency_p99": 1486.14,
+    "lambda_duration_p99": 1341.63
+  },
+  "lambda_reports": {
+    "invocations": 320.0,
+    "cold_starts": 23.0,
+    "init_avg_ms": 402.41,
+    "init_max_ms": 797.59,
+    "duration_p50_ms": 1.84,
+    "duration_p95_ms": 675.02,
+    "duration_p99_ms": 897.49,
+    "max_memory_mb": 117.0
+  }
+}

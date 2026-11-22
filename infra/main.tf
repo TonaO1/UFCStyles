@@ -27,6 +27,30 @@ variable "suffix" { # used to prevent resource name conflicts!
   type        = string
 }
 
+# API Gateway throttling. Defaults keep the public URL safe; raise only for a load test with
+# terraform apply -var="throttle_rate_limit=200" -var="throttle_burst_limit=400", then plain apply to reset
+variable "throttle_rate_limit" {
+  description = "Steady-state requests per second the $default stage allows"
+  default     = 5
+  type        = number
+
+  validation { # Catches typos before anything reaches AWS
+    condition     = var.throttle_rate_limit > 0 && var.throttle_rate_limit <= 1000
+    error_message = "throttle_rate_limit must be between 1 and 1000."
+  }
+}
+
+variable "throttle_burst_limit" {
+  description = "Requests the $default stage absorbs at once before throttling (token bucket size)"
+  default     = 10
+  type        = number
+
+  validation {
+    condition     = var.throttle_burst_limit > 0 && var.throttle_burst_limit <= 2000
+    error_message = "throttle_burst_limit must be between 1 and 2000."
+  }
+}
+
 
 resource "aws_ecr_repository" "serving" {
   name                 = "ufc-styles-serving-${var.suffix}"
@@ -166,8 +190,8 @@ resource "aws_apigatewayv2_stage" "default" {
 
   # Rate-limiting since this is a publicly accesible URL
   default_route_settings {
-    throttling_burst_limit = 10
-    throttling_rate_limit  = 5
+    throttling_burst_limit = var.throttle_burst_limit
+    throttling_rate_limit  = var.throttle_rate_limit
   }
 
 }
